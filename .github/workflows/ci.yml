@@ -3,19 +3,35 @@ name: CI
 on:
   push:
     branches: [main]
+    paths:
+      - "src/**"
+      - "test/**"
+      - "package.json"
+      - "package-lock.json"
+      - "tsconfig*.json"
+      - ".github/workflows/ci.yml"
   pull_request:
     branches: [main]
+    paths:
+      - "src/**"
+      - "test/**"
+      - "package.json"
+      - "package-lock.json"
+      - "tsconfig*.json"
+      - ".github/workflows/ci.yml"
 
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
       - uses: actions/checkout@v4
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24"
           cache: npm
 
       - name: Install dependencies
