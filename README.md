@@ -1,6 +1,17 @@
 # Words Hunter — OpenClaw plugin
 
-OpenClaw extension for [Words Hunter](https://github.com/zzbyy/words-hunter): vocabulary tools for Obsidian vaults (scan, load word, record mastery, etc.).
+[![CI](https://github.com/zzbyy/openclaw-words-hunter/actions/workflows/ci.yml/badge.svg)](https://github.com/zzbyy/openclaw-words-hunter/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/words-hunter-openclaw.svg)](https://www.npmjs.com/package/words-hunter-openclaw)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+OpenClaw extension for [Words Hunter](https://github.com/zzbyy/words-hunter): vocabulary tools for Obsidian vaults.
+
+## Features
+
+- Scan your vault for vocabulary notes
+- Load a word into context for study or conversation
+- Record sightings and mastery
+- SRS-related helpers and weekly recap channel support (see plugin config)
 
 ## Install
 
@@ -43,6 +54,15 @@ npm install && npm run build
 openclaw plugins install -l .
 ```
 
+## Configuration
+
+Optional plugin settings (see `openclaw.plugin.json` in this repo):
+
+| Key | Description |
+| --- | --- |
+| `vault_path` | Absolute path to your words directory. Usually auto-discovered from the Words Hunter macOS app — set manually only if auto-discovery fails. |
+| `recap_channel` | Channel ID for weekly vocab recap. Defaults to the channel where the first session ran. |
+
 ## Update
 
 **npm install:** `openclaw plugins update words-hunter`
@@ -56,6 +76,14 @@ npm run build
 npm test
 ```
 
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md).
+
 ## License
 
-Same as the parent Words Hunter project (see main repo).
+[MIT](LICENSE).

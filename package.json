@@ -2,12 +2,30 @@
   "name": "words-hunter-openclaw",
   "version": "1.1.0",
   "description": "Master vocabulary captured by Words Hunter via conversational AI sessions.",
+  "license": "MIT",
+  "keywords": [
+    "openclaw",
+    "obsidian",
+    "vocabulary",
+    "words-hunter",
+    "plugin"
+  ],
+  "homepage": "https://github.com/zzbyy/openclaw-words-hunter#readme",
+  "bugs": {
+    "url": "https://github.com/zzbyy/openclaw-words-hunter/issues"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/zzbyy/openclaw-words-hunter.git"
   },
   "main": "dist/index.js",
   "type": "module",
+  "files": [
+    "dist",
+    "openclaw.plugin.json",
+    "README.md",
+    "LICENSE"
+  ],
   "openclaw": {
     "id": "words-hunter",
     "name": "Words Hunter",
@@ -16,6 +34,7 @@
     ]
   },
   "scripts": {
+    "prepack": "npm run build",
     "build": "tsc",
     "test": "vitest run",
     "test:watch": "vitest",
