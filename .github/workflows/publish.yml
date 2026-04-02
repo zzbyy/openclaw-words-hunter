@@ -29,13 +29,21 @@ jobs:
       - name: Test
         run: npm test
 
-      - name: Pack tarball
-        run: npm pack
-
-      - name: Upload tarball to release
+      - name: Pack and upload tarball
         run: |
-          TARBALL=$(ls words-hunter-openclaw-*.tgz)
+          set -euo pipefail
+          # npm pack prints the tarball path; pick the .tgz line (avoids npm notice noise)
+          TARBALL=$(npm pack 2>&1 | grep -E 'words-hunter-openclaw-.+\.tgz$' | tail -n1)
+          if [ ! -f "$TARBALL" ]; then
+            echo "npm pack did not produce $TARBALL"
+            ls -la
+            exit 1
+          fi
           cp "$TARBALL" words-hunter-openclaw.tgz
-          gh release upload "${{ github.event.release.tag_name }}" words-hunter-openclaw.tgz --clobber
+          # Stable name for README/install.sh; keep semver-named asset too
+          gh release upload "${{ github.event.release.tag_name }}" \
+            words-hunter-openclaw.tgz \
+            "$TARBALL" \
+            --clobber
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
