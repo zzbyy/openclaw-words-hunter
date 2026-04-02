@@ -13,4 +13,4 @@ echo "Installing..."
 openclaw plugins install "$TMP"
 
 rm -f "$TMP"
-echo "Done. Restart the OpenClaw gateway to load the plugin."
+echo "Done."
