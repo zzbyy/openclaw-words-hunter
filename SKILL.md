@@ -95,6 +95,7 @@ Call `record_mastery(word, score, best_sentence?, failure_note?)`.
 **If graduated (box 4 reached for first time):**
 > "You've mastered **{word}**! 🎉"
 Generate a memorable sentence using the word. Call `update_page(word, graduation_sentence=...)`.
+The sentence must be **non-empty**, include **{word}** as a whole word (case-insensitive), and be **≤200 characters**; otherwise the tool returns `INVALID_GRADUATION` and the page is not updated.
 Send the celebration message to the channel.
 
 ### 7. Next word

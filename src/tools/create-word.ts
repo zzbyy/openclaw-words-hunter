@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { ToolResult, VaultConfig, ok, err } from '../types.js';
 import { wordsFolderPath, validateWord, assertInVault } from '../vault.js';
-import { masteryJsonPath, readMasteryStore, writeMasteryStore } from '../vault.js';
+import { masteryJsonPath, readMasteryStore, writeMasteryStore, withMasteryLock } from '../vault.js';
 import { todayString } from '../srs/scheduler.js';
 import { cambridgeLookup, CambridgeBlockedError } from '../cambridge-lookup.js';
 import { fillWordPage } from '../fill-word-page.js';
@@ -111,8 +111,9 @@ export async function createWord(
 
   // Register in mastery.json (box=1, status=new)
   const jsonPath = masteryJsonPath(config);
-  const storeResult = await readMasteryStore(jsonPath);
-  if (storeResult.ok) {
+  await withMasteryLock(jsonPath, async () => {
+    const storeResult = await readMasteryStore(jsonPath);
+    if (!storeResult.ok) return;
     const store = storeResult.data;
     if (!store.words[word]) {
       store.words[word] = {
@@ -128,7 +129,7 @@ export async function createWord(
       };
       await writeMasteryStore(jsonPath, store);
     }
-  }
+  });
 
   // Cambridge lookup — best-effort, fills template vars in-place
   const lookup = await runLookup(config, word);

@@ -1,9 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { importUntracked } from '../src/importer.js';
+import { importUntracked, isWordPage } from '../src/importer.js';
 import type { VaultConfig, MasteryStore } from '../src/types.js';
 import { mkdtemp, rm, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { readFileSync } from 'node:fs';
+
+const FIXTURES = join(import.meta.dirname, 'fixtures');
 
 async function makeVault(): Promise<{ vaultPath: string; config: VaultConfig; cleanup: () => Promise<void> }> {
   const vaultPath = await mkdtemp(join(tmpdir(), 'wh-import-test-'));
@@ -27,8 +30,13 @@ describe('importUntracked', () => {
   it('word page not in mastery.json → gets imported', async () => {
     const { vaultPath, config, cleanup } = await makeVault();
     try {
-      await writeFile(join(vaultPath, 'Words', 'posit.md'), '# posit', 'utf8');
-      await writeFile(join(vaultPath, 'Words', 'ephemeral.md'), '# ephemeral', 'utf8');
+      const template = readFileSync(join(FIXTURES, 'posit-no-mastery.md'), 'utf8');
+      await writeFile(join(vaultPath, 'Words', 'posit.md'), template, 'utf8');
+      await writeFile(
+        join(vaultPath, 'Words', 'ephemeral.md'),
+        template.replace(/posit/g, 'ephemeral'),
+        'utf8',
+      );
 
       const result = await importUntracked(config);
       expect(result.imported.sort()).toEqual(['ephemeral', 'posit']);
@@ -51,7 +59,8 @@ describe('importUntracked', () => {
   it('existing mastery.json entry → not overwritten', async () => {
     const { vaultPath, config, cleanup } = await makeVault();
     try {
-      await writeFile(join(vaultPath, 'Words', 'posit.md'), '# posit', 'utf8');
+      const template = readFileSync(join(FIXTURES, 'posit-no-mastery.md'), 'utf8');
+      await writeFile(join(vaultPath, 'Words', 'posit.md'), template, 'utf8');
       const store: MasteryStore = {
         version: 1,
         words: {
@@ -82,12 +91,65 @@ describe('importUntracked', () => {
   it('non-.md files in words folder are ignored', async () => {
     const { vaultPath, config, cleanup } = await makeVault();
     try {
-      await writeFile(join(vaultPath, 'Words', 'posit.md'), '# posit', 'utf8');
+      const template = readFileSync(join(FIXTURES, 'posit-no-mastery.md'), 'utf8');
+      await writeFile(join(vaultPath, 'Words', 'posit.md'), template, 'utf8');
       await writeFile(join(vaultPath, 'Words', '.DS_Store'), '', 'utf8');
       await writeFile(join(vaultPath, 'Words', 'notes.txt'), 'notes', 'utf8');
 
       const result = await importUntracked(config);
       expect(result.imported).toEqual(['posit']);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it('skips _-prefixed .md files (templates/MOCs)', async () => {
+    const { vaultPath, config, cleanup } = await makeVault();
+    try {
+      const template = readFileSync(join(FIXTURES, 'posit-no-mastery.md'), 'utf8');
+      await writeFile(join(vaultPath, 'Words', 'real.md'), template.replace(/posit/g, 'real'), 'utf8');
+      await writeFile(join(vaultPath, 'Words', '_template.md'), template, 'utf8');
+
+      const result = await importUntracked(config);
+      expect(result.imported).toEqual(['real']);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it('skips .md without > [!info] callout', async () => {
+    const { vaultPath, config, cleanup } = await makeVault();
+    try {
+      const template = readFileSync(join(FIXTURES, 'posit-no-mastery.md'), 'utf8');
+      await writeFile(join(vaultPath, 'Words', 'good.md'), template.replace(/posit/g, 'good'), 'utf8');
+      await writeFile(join(vaultPath, 'Words', 'junk.md'), '# just a heading\n\nno callout here.', 'utf8');
+
+      const result = await importUntracked(config);
+      expect(result.imported).toEqual(['good']);
+    } finally {
+      await cleanup();
+    }
+  });
+});
+
+describe('isWordPage', () => {
+  it('false for _prefixed filename', async () => {
+    const { vaultPath, cleanup } = await makeVault();
+    try {
+      const p = join(vaultPath, 'Words', '_x.md');
+      await writeFile(p, '> [!info] x', 'utf8');
+      expect(await isWordPage(p)).toBe(false);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it('false without [!info]', async () => {
+    const { vaultPath, cleanup } = await makeVault();
+    try {
+      const p = join(vaultPath, 'Words', 'a.md');
+      await writeFile(p, '# hello', 'utf8');
+      expect(await isWordPage(p)).toBe(false);
     } finally {
       await cleanup();
     }

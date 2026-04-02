@@ -22,16 +22,22 @@ export async function onOutgoingMessage(
   const words = Object.keys(store.words);
   if (words.length === 0) return;
 
+  const matches: Array<{ word: string; sentence: string }> = [];
   for (const word of words) {
-    // Word-boundary match, case-insensitive
-    // Use \b to avoid matching "posit" inside "positive" or "deposition"
     const regex = new RegExp(`\\b${escapeRegex(word)}\\b`, 'i');
     if (!regex.test(messageText)) continue;
-
-    // Extract the sentence containing the word (best effort)
     const sentence = extractSentence(messageText, word) ?? messageText.trim();
+    matches.push({ word, sentence });
+  }
 
-    await recordSighting(config, { word, sentence, channel: channelLabel });
+  const settled = await Promise.allSettled(
+    matches.map(m => recordSighting(config, { word: m.word, sentence: m.sentence, channel: channelLabel })),
+  );
+  for (let i = 0; i < settled.length; i++) {
+    const r = settled[i]!;
+    if (r.status === 'rejected') {
+      console.warn(`[words-hunter] record_sighting failed for '${matches[i]!.word}': ${String(r.reason)}`);
+    }
   }
 }
 
