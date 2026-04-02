@@ -16,12 +16,10 @@ OpenClaw extension for [Words Hunter](https://github.com/zzbyy/words-hunter): vo
 
 Download the pre-built tarball from the [latest release](https://github.com/zzbyy/openclaw-words-hunter/releases/latest) and install it.
 
-**Via curl:**
+**One command:**
 
 ```bash
-curl -fsSL -o /tmp/openclaw-words-hunter.tgz \
-  "https://github.com/zzbyy/openclaw-words-hunter/releases/latest/download/words-hunter-openclaw.tgz" \
-  && openclaw plugins install /tmp/openclaw-words-hunter.tgz
+curl -fsSL https://raw.githubusercontent.com/zzbyy/openclaw-words-hunter/main/install.sh | sh
 ```
 
 **Or manually:** go to [Releases](https://github.com/zzbyy/openclaw-words-hunter/releases/latest), download `words-hunter-openclaw.tgz`, then:
