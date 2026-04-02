@@ -23,6 +23,12 @@ Compiled JavaScript lives in `dist/`, which is **not** committed. Run `npm run b
    npm test
    ```
 
+   Optional — resync mastery callouts in a vault after `build` (see [README.md](README.md#repair-cli)):
+
+   ```bash
+   npm run repair -- --vault /absolute/path/to/vault
+   ```
+
 3. Optional: run tests in watch mode while developing:
 
    ```bash

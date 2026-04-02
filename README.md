@@ -62,6 +62,17 @@ npm run build
 npm test
 ```
 
+### Repair CLI
+
+If notes and `.wordshunter/mastery.json` drift (e.g. after manual edits), regenerate `> [!mastery]` callouts from the JSON:
+
+```bash
+npm run build
+npm run repair -- --vault /absolute/path/to/your/vault
+```
+
+`--vault` defaults to the current working directory. When installed as an npm package with a `words-hunter` binary on your `PATH`, you can run `words-hunter repair` the same way.
+
 ## Privacy
 
 The **sighting hook** (outgoing message scan) runs **only on your machine**: it inspects your own outgoing messages to detect when you use a vocabulary word you have saved in Words Hunter.
