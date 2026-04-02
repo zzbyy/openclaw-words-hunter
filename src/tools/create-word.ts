@@ -7,9 +7,10 @@ import { todayString } from '../srs/scheduler.js';
 import { cambridgeLookup, CambridgeBlockedError } from '../cambridge-lookup.js';
 import { fillWordPage } from '../fill-word-page.js';
 
-// Template variable reference:
+// Template variable reference (matches WordPageCreator.swift):
 //   Creation-time (filled on page creation):  {{word}}, {{date}}
-//   Lookup-time   (filled after Cambridge):   {{syllables}}, {{pronunciation}}, {{meanings}},
+//   Lookup-time   (filled after Cambridge):   {{pronunciation-bre}}, {{pronunciation-ame}},
+//                                              {{cefr}}, {{meanings}}, {{corpus-examples}},
 //                                              {{when-to-use}}, {{word-family}}, {{see-also}}
 //
 // Lookup runs immediately after page creation (best-effort, 8s timeout).
@@ -17,15 +18,20 @@ import { fillWordPage } from '../fill-word-page.js';
 // Any variable can be omitted from a custom template to opt out of that section.
 const DEFAULT_TEMPLATE = `# {{word}}
 
-**Syllables:** {{syllables}} · **Pronunciation:** {{pronunciation}}
+**Pronunciation:** 🇬🇧 {{pronunciation-bre}} · 🇺🇸 {{pronunciation-ame}} · **Level:** {{cefr}}
 
 ## Sightings
 - {{date}} — *(context sentence where you saw the word)*
 
 ---
 
-## Meanings
+## Definitions
 {{meanings}}
+
+## Corpus Examples
+{{corpus-examples}}
+
+---
 
 ## When to Use
 {{when-to-use}}
@@ -33,6 +39,7 @@ const DEFAULT_TEMPLATE = `# {{word}}
 
 ## Word Family
 {{word-family}}
+
 ---
 
 ## See Also
