@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import lockfile from 'proper-lockfile';
 import { ToolResult, ToolError, VaultConfig, MasteryStore, NudgeQueue, ok, err } from './types.js';
 
 // ============================================================
@@ -99,6 +100,29 @@ export function assertInVault(
 // ============================================================
 // mastery.json I/O
 // ============================================================
+
+/**
+ * Serialize read-modify-write on mastery.json to prevent lost updates when
+ * two callers update concurrently (e.g. sighting hook + active session).
+ *
+ * Locks a dedicated `.mastery.lock` file (not mastery.json itself) because
+ * proper-lockfile requires the lock target to exist, and mastery.json may be
+ * absent on first run.
+ */
+export async function withMasteryLock<T>(jsonPath: string, fn: () => Promise<T>): Promise<T> {
+  const dir = path.dirname(jsonPath);
+  await fs.mkdir(dir, { recursive: true });
+  const lockTarget = path.join(dir, '.mastery.lock');
+  await fs.writeFile(lockTarget, '', { flag: 'a' });
+  const release = await lockfile.lock(lockTarget, {
+    retries: { retries: 3, minTimeout: 100 },
+  });
+  try {
+    return await fn();
+  } finally {
+    await release();
+  }
+}
 
 export async function readMasteryStore(jsonPath: string): Promise<ToolResult<MasteryStore>> {
   let raw: string;

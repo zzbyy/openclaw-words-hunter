@@ -62,6 +62,13 @@ npm run build
 npm test
 ```
 
+## Privacy
+
+The **sighting hook** (outgoing message scan) runs **only on your machine**: it inspects your own outgoing messages to detect when you use a vocabulary word you have saved in Words Hunter.
+
+- Only the **matched word**, **timestamp**, and **sentence context** are written into your Obsidian `.md` note — nothing is sent to external servers for this feature.
+- The hook applies to **your outgoing messages**, not the assistant’s replies.
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).

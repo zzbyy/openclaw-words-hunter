@@ -15,7 +15,8 @@ export type ToolError =
   | { code: 'VAULT_ESCAPE';     message: string; path: string }
   | { code: 'NaN_SCORE';        message: string; field: string }
   | { code: 'INVALID_INPUT';   message: string; field: string }
-  | { code: 'FILE_EXISTS';     message: string };
+  | { code: 'FILE_EXISTS';     message: string }
+  | { code: 'INVALID_GRADUATION'; message: string; word: string };
 
 export function ok<T>(data: T): ToolResult<T> {
   return { ok: true, data };

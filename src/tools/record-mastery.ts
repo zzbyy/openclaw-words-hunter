@@ -1,7 +1,15 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { ToolResult, VaultConfig, WordEntry, BestSentence, ok, err } from '../types.js';
-import { masteryJsonPath, wordsFolderPath, assertInVault, readMasteryStore, writeMasteryStore, validateWord } from '../vault.js';
+import { ToolResult, ToolError, VaultConfig, WordEntry, BestSentence, ok, err } from '../types.js';
+import {
+  masteryJsonPath,
+  wordsFolderPath,
+  assertInVault,
+  readMasteryStore,
+  writeMasteryStore,
+  validateWord,
+  withMasteryLock,
+} from '../vault.js';
 import { advance, todayString, MASTERY_THRESHOLD } from '../srs/scheduler.js';
 import { upsertCallout } from '../callout-renderer.js';
 
@@ -19,6 +27,10 @@ export interface RecordMasteryResult {
   next_review: string;
   graduated: boolean;
 }
+
+type MasteryLockOutcome =
+  | { ok: true; updatedEntry: WordEntry; currentBox: 1 | 2 | 3 | 4 | 5; graduated: boolean }
+  | { ok: false; error: ToolError };
 
 /**
  * record_mastery — record a practice session result.
@@ -48,46 +60,49 @@ export async function recordMastery(
   const jsonPath = masteryJsonPath(config);
   const today = todayString();
 
-  // Read current store
-  const storeResult = await readMasteryStore(jsonPath);
-  if (!storeResult.ok) return storeResult;
-  const store = storeResult.data;
+  const masteryOutcome = await withMasteryLock(jsonPath, async (): Promise<MasteryLockOutcome> => {
+    const storeResult = await readMasteryStore(jsonPath);
+    if (!storeResult.ok) return { ok: false, error: storeResult.error };
 
-  // Get or initialise entry
-  const existing = store.words[wordLower];
-  const currentBox: 1 | 2 | 3 | 4 | 5 = existing?.box ?? 1;
+    const store = storeResult.data;
+    const existing = store.words[wordLower];
+    const currentBox: 1 | 2 | 3 | 4 | 5 = existing?.box ?? 1;
 
-  // Advance schedule
-  const { box, status, next_review, graduated } = advance(currentBox, score, today);
+    const { box, status, next_review, graduated } = advance(currentBox, score, today);
 
-  // Build updated best_sentences
-  const bestSentences: BestSentence[] = existing?.best_sentences ?? [];
-  if (input.best_sentence && score >= MASTERY_THRESHOLD) {
-    bestSentences.push({ text: input.best_sentence, date: today, score });
-  }
+    const bestSentences: BestSentence[] = existing?.best_sentences ?? [];
+    if (input.best_sentence && score >= MASTERY_THRESHOLD) {
+      bestSentences.push({ text: input.best_sentence, date: today, score });
+    }
 
-  // Build updated failures
-  const failures: string[] = existing?.failures ?? [];
-  if (input.failure_note && score < MASTERY_THRESHOLD) {
-    failures.push(input.failure_note);
-  }
+    const failures: string[] = existing?.failures ?? [];
+    if (input.failure_note && score < MASTERY_THRESHOLD) {
+      failures.push(input.failure_note);
+    }
 
-  const updatedEntry: WordEntry = {
-    word: wordLower,
-    box,
-    status,
-    score,
-    last_practiced: today,
-    next_review,
-    sessions: (existing?.sessions ?? 0) + 1,
-    failures,
-    best_sentences: bestSentences,
-  };
-  store.words[wordLower] = updatedEntry;
+    const updatedEntry: WordEntry = {
+      word: wordLower,
+      box,
+      status,
+      score,
+      last_practiced: today,
+      next_review,
+      sessions: (existing?.sessions ?? 0) + 1,
+      failures,
+      best_sentences: bestSentences,
+    };
+    store.words[wordLower] = updatedEntry;
 
-  // Write mastery.json atomically
-  const writeResult = await writeMasteryStore(jsonPath, store);
-  if (!writeResult.ok) return writeResult;
+    const writeResult = await writeMasteryStore(jsonPath, store);
+    if (!writeResult.ok) return { ok: false, error: writeResult.error };
+
+    return { ok: true, updatedEntry, currentBox, graduated };
+  });
+
+  if (!masteryOutcome.ok) return { ok: false, error: masteryOutcome.error };
+
+  const { updatedEntry, currentBox, graduated } = masteryOutcome;
+  const { box, status, next_review } = updatedEntry;
 
   // Update .md page: append History + regenerate callout
   const wordsDir = wordsFolderPath(config);

@@ -4,6 +4,23 @@ import path from 'node:path';
 import { ToolResult, VaultConfig, ok, err } from '../types.js';
 import { wordsFolderPath, assertInVault, validateWord } from '../vault.js';
 
+/** Escape regex metacharacters in a word for word-boundary matching. */
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Validate LLM-provided graduation sentence: non-empty, contains word, ≤200 chars.
+ * Returns null if valid, or a short reason code for error messages.
+ */
+export function validateGraduationSentence(wordLower: string, sentence: string): string | null {
+  if (!sentence || sentence.trim().length === 0) return 'empty';
+  if (sentence.length > 200) return 'too_long';
+  const regex = new RegExp(`\\b${escapeRegex(wordLower)}\\b`, 'i');
+  if (!regex.test(sentence)) return 'missing_word';
+  return null;
+}
+
 export interface UpdatePageInput {
   word: string;
   best_sentence?: string;         // append to ### Best Sentences
@@ -69,6 +86,14 @@ export async function updatePage(
 
   // Write ## Graduation section (idempotent)
   if (input.graduation_sentence && !/^## Graduation/m.test(updated)) {
+    const bad = validateGraduationSentence(wordLower, input.graduation_sentence);
+    if (bad) {
+      return err({
+        code: 'INVALID_GRADUATION',
+        message: `Invalid graduation sentence (${bad}). Provide a non-empty sentence under 200 characters that contains the word.`,
+        word: wordLower,
+      });
+    }
     const today = new Date().toISOString().slice(0, 10);
     updated += `\n\n## Graduation\n> On ${today} you mastered this word. "${input.graduation_sentence}"\n`;
   }
