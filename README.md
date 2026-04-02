@@ -20,8 +20,8 @@ Download the pre-built tarball from the [latest release](https://github.com/zzby
 
 ```bash
 curl -fsSL -o /tmp/openclaw-words-hunter.tgz \
-  "https://github.com/zzbyy/openclaw-words-hunter/releases/latest/download/words-hunter-openclaw.tgz"
-openclaw plugins install /tmp/openclaw-words-hunter.tgz
+  "https://github.com/zzbyy/openclaw-words-hunter/releases/latest/download/words-hunter-openclaw.tgz" \
+  && openclaw plugins install /tmp/openclaw-words-hunter.tgz
 ```
 
 **Or manually:** go to [Releases](https://github.com/zzbyy/openclaw-words-hunter/releases/latest), download `words-hunter-openclaw.tgz`, then:

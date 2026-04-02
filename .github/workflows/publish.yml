@@ -35,6 +35,7 @@ jobs:
       - name: Upload tarball to release
         run: |
           TARBALL=$(ls words-hunter-openclaw-*.tgz)
-          gh release upload "${{ github.event.release.tag_name }}" "$TARBALL" --clobber
+          cp "$TARBALL" words-hunter-openclaw.tgz
+          gh release upload "${{ github.event.release.tag_name }}" words-hunter-openclaw.tgz --clobber
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
