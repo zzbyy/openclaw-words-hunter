@@ -60,6 +60,8 @@ export interface WordEntry {
   sessions: number;
   failures: string[];
   best_sentences: BestSentence[];
+  coaching_mode?: 'silent' | 'inline';
+  synonyms?: string[];
 }
 
 export interface MasteryStore {
@@ -117,4 +119,15 @@ export interface ScannedWord {
   word: string;
   status: WordEntry['status'] | 'new';
   next_review: string | null;
+  coaching_mode?: 'inline';   // present only when inline; absent = not set OR set to silent
 }
+
+export type PluginRuntime = {
+  logger: { info: (message: string) => void };
+  pluginConfig?: Record<string, unknown>;
+  sendMessage?: (channelId: string, message: string) => Promise<unknown> | unknown;
+  postMessage?: (channelId: string, message: string) => Promise<unknown> | unknown;
+  channels?: {
+    send?: (channelId: string, message: string) => Promise<unknown> | unknown;
+  };
+};

@@ -16,7 +16,8 @@
 import { definePluginEntry } from 'openclaw/plugin-sdk/plugin-entry';
 import { Type } from '@sinclair/typebox';
 import fs from 'node:fs/promises';
-import type { VaultConfig, ToolResult } from './types.js';
+import type { VaultConfig, ToolResult, PluginRuntime } from './types.js';
+import { emitPluginNotification } from './notify-utils.js';
 import { loadVaultConfig, mutateNudgeQueue, mutatePluginSidecarConfig, nudgeQueuePath, readPluginSidecarConfig, readMasteryStore, masteryJsonPath, writePluginSidecarConfig } from './vault.js';
 import { readDiscovery, writeDiscovery } from './discovery.js';
 import { importUntracked } from './importer.js';
@@ -28,6 +29,7 @@ import { recordSighting } from './tools/record-sighting.js';
 import { vaultSummary } from './tools/vault-summary.js';
 import { onOutgoingMessage } from './hooks/sighting-hook.js';
 import { createWord } from './tools/create-word.js';
+import { updateWordMeta } from './tools/update-word-meta.js';
 import { startWatcher } from './watcher.js';
 import { isWeeklyRecapDue, resolveRecapChannel } from './notifications.js';
 
@@ -219,6 +221,22 @@ export default definePluginEntry({
     });
 
     api.registerTool({
+      name: 'update_word_meta',
+      label: 'Update Word Meta',
+      description: "Update per-word coaching metadata without affecting SRS state. Use to set coaching_mode ('inline' to get channel notifications on sightings, 'silent' to stop) and to store synonym lists. Does not change box, score, or next_review.",
+      parameters: Type.Object({
+        word: Type.String(),
+        coaching_mode: Type.Optional(Type.Union([Type.Literal('silent'), Type.Literal('inline')])),
+        synonyms: Type.Optional(Type.Array(Type.String(), { maxItems: 5 })),
+      }),
+      async execute(_id, input) {
+        const configResult = await configPromise;
+        if (!configResult.ok) return toAgentResult({ ok: false, error: { code: 'VAULT_NOT_FOUND', message: configResult.error.message } }) as never;
+        return toAgentResult(await updateWordMeta(configResult.data, input)) as never;
+      },
+    });
+
+    api.registerTool({
       name: 'vault_summary',
       label: 'Vault Summary',
       description: 'Get aggregate stats for the Words Hunter vault: total words, mastery breakdown (mastered/reviewing/learning), due count, and last session date.',
@@ -253,7 +271,7 @@ export default definePluginEntry({
         return; // don't run sighting scan on a slash command
       }
 
-      await onOutgoingMessage(configResult.data, event.content, ctx.channelId);
+      await onOutgoingMessage(configResult.data, event.content, ctx.channelId, api);
       // Also persist primary_channel for nudge routing
       void persistPrimaryChannel(configResult.data, ctx.channelId);
     });
@@ -319,16 +337,6 @@ async function ensureConfigBridge(config: VaultConfig): Promise<void> {
     words_folder: config.words_folder,
   });
 }
-
-type PluginRuntime = {
-  logger: { info: (message: string) => void };
-  pluginConfig?: Record<string, unknown>;
-  sendMessage?: (channelId: string, message: string) => Promise<unknown> | unknown;
-  postMessage?: (channelId: string, message: string) => Promise<unknown> | unknown;
-  channels?: {
-    send?: (channelId: string, message: string) => Promise<unknown> | unknown;
-  };
-};
 
 async function fireOverdueNudges(config: VaultConfig, runtime: PluginRuntime): Promise<void> {
   const sidecar = await readPluginSidecarConfig(config.vault_path);
@@ -427,47 +435,3 @@ async function persistPrimaryChannel(config: VaultConfig, channelId: string): Pr
   }
 }
 
-async function emitPluginNotification(
-  runtime: PluginRuntime,
-  tag: 'nudge' | 'weekly',
-  channelId: string | null,
-  message: string,
-): Promise<void> {
-  const sender = resolveNotificationSender(runtime);
-
-  if (channelId && sender) {
-    try {
-      await sender(channelId, message);
-      return;
-    } catch (error) {
-      runtime.logger.info(`[words-hunter ${tag}] channel delivery failed for ${channelId}: ${String(error)}`);
-    }
-  }
-
-  const channelSuffix = channelId ? ` [channel:${channelId}]` : '';
-  runtime.logger.info(`[words-hunter ${tag}]${channelSuffix} ${message}`);
-}
-
-function resolveNotificationSender(
-  runtime: PluginRuntime,
-): ((channelId: string, message: string) => Promise<void>) | null {
-  if (typeof runtime.sendMessage === 'function') {
-    return async (channelId: string, message: string) => {
-      await runtime.sendMessage!(channelId, message);
-    };
-  }
-
-  if (typeof runtime.postMessage === 'function') {
-    return async (channelId: string, message: string) => {
-      await runtime.postMessage!(channelId, message);
-    };
-  }
-
-  if (typeof runtime.channels?.send === 'function') {
-    return async (channelId: string, message: string) => {
-      await runtime.channels!.send!(channelId, message);
-    };
-  }
-
-  return null;
-}

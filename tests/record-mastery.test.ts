@@ -150,4 +150,50 @@ describe('record_mastery', () => {
       await cleanup();
     }
   });
+
+  it('practice session: coaching_mode present before practice is preserved after', async () => {
+    const { vaultPath, config, cleanup } = await makeVault();
+    try {
+      const mdContent = readFileSync(join(FIXTURES, 'posit-no-mastery.md'), 'utf8');
+      await writeFile(join(vaultPath, 'Words', 'posit.md'), mdContent, 'utf8');
+
+      const store: MasteryStore = {
+        version: 1,
+        words: {
+          posit: { word: 'posit', box: 1, status: 'learning', score: 50, last_practiced: '2026-03-28', next_review: '2026-03-29', sessions: 1, failures: [], best_sentences: [], coaching_mode: 'inline' },
+        },
+      };
+      await writeFile(join(vaultPath, '.wordshunter', 'mastery.json'), JSON.stringify(store), 'utf8');
+
+      await recordMastery(config, { word: 'posit', score: 88 });
+      const raw = await readFile(join(vaultPath, '.wordshunter', 'mastery.json'), 'utf8');
+      const updated: MasteryStore = JSON.parse(raw);
+      expect(updated.words['posit'].coaching_mode).toBe('inline');
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it('practice session: synonyms present before practice is preserved after', async () => {
+    const { vaultPath, config, cleanup } = await makeVault();
+    try {
+      const mdContent = readFileSync(join(FIXTURES, 'posit-no-mastery.md'), 'utf8');
+      await writeFile(join(vaultPath, 'Words', 'posit.md'), mdContent, 'utf8');
+
+      const store: MasteryStore = {
+        version: 1,
+        words: {
+          posit: { word: 'posit', box: 1, status: 'learning', score: 50, last_practiced: '2026-03-28', next_review: '2026-03-29', sessions: 1, failures: [], best_sentences: [], synonyms: ['suggest', 'propose'] },
+        },
+      };
+      await writeFile(join(vaultPath, '.wordshunter', 'mastery.json'), JSON.stringify(store), 'utf8');
+
+      await recordMastery(config, { word: 'posit', score: 88 });
+      const raw = await readFile(join(vaultPath, '.wordshunter', 'mastery.json'), 'utf8');
+      const updated: MasteryStore = JSON.parse(raw);
+      expect(updated.words['posit'].synonyms).toEqual(['suggest', 'propose']);
+    } finally {
+      await cleanup();
+    }
+  });
 });
