@@ -89,6 +89,8 @@ export async function recordMastery(
       sessions: (existing?.sessions ?? 0) + 1,
       failures,
       best_sentences: bestSentences,
+      coaching_mode: existing?.coaching_mode,
+      synonyms: existing?.synonyms,
     };
     store.words[wordLower] = updatedEntry;
 

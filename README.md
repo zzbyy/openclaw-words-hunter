@@ -3,18 +3,98 @@
 [![CI](https://github.com/zzbyy/openclaw-words-hunter/actions/workflows/ci.yml/badge.svg)](https://github.com/zzbyy/openclaw-words-hunter/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-OpenClaw extension for [Words Hunter](https://github.com/zzbyy/words-hunter): vocabulary tools for Obsidian vaults.
+Vocabulary mastery inside your AI conversations. Words Hunter connects your [Obsidian](https://obsidian.md) vocab notes to [OpenClaw](https://openclaw.ai) so you can practice, track, and get coached on the words you're studying — without leaving the chat.
+
+---
+
+## How it works
+
+When you encounter a word worth learning, the [Words Hunter macOS app](https://github.com/zzbyy/words-hunter) captures it into your Obsidian vault. Each word gets a `.md` note with Cambridge Dictionary definitions, pronunciation, example sentences, and a spaced-repetition schedule.
+
+This plugin bridges that vault to your OpenClaw AI agent:
+
+1. **Practice** — `/vocab` starts a session for today's due words. The agent quizzes you, scores your sentences, and advances your SRS schedule.
+2. **Track sightings** — every outgoing message is scanned for your vocab words. When you use one naturally, it's logged as a sighting in the word's note.
+3. **Proactive coaching** — enable inline feedback per word: when you use it in a message, the agent replies with a quick confirmation and box status. If you use a weaker synonym of a word you're studying, the agent nudges you to consider the stronger one.
+
+---
 
 ## Features
 
-- Scan your vault for vocabulary notes
-- Load a word into context for study or conversation
-- Record sightings and mastery
-- SRS-related helpers and weekly recap channel support (see plugin config)
+### Spaced repetition (SRS)
+
+Words move through a 5-box Leitner system. Practice threshold is **85/100**:
+- Score ≥ 85 → box advances, next review pushed out
+- Score < 85 → box drops, scheduled sooner
+
+Each practice session scores your original sentences across meaning (15pts), register (10pts), collocation (10pts), and grammar (5pts), scaled to 0–100.
+
+### Sighting detection
+
+The plugin monitors your outgoing messages for captured vocab words using word-boundary matching (case-insensitive). Every sighting is appended to the word's `## Sightings` section — no external data sent, no confirmation messages. Passive, silent, automatic.
+
+### Proactive coaching (per-word, opt-in)
+
+Two modes — both off by default:
+
+**Inline micro-feedback** (`coaching_mode: inline`): when you use a word you're studying in a message, the agent sends a one-line reply in the channel:
+> `posit -- naturally used. Box 3. [#vocab to practice]`
+
+**Synonym nudge**: when you use a weaker synonym of a studied word, the agent suggests the stronger form:
+> `You wrote "suggest" -- but you've been studying "posit" (similar meaning). Consider swapping? [#vocab to practice]`
+
+Synonyms are stored per-word (via `extract synonyms`) and matched at runtime with zero LLM cost. Common synonyms (appearing across too many vault words) are automatically filtered out to avoid noise.
+
+### Weekly recap
+
+Every Sunday at 9am, a summary is sent to your primary channel:
+> Weekly vocab recap: 12 words total — 3 mastered, 4 reviewing, 5 learning. Today: 2 due.
+
+---
+
+## Commands
+
+### Session commands
+
+| Command | What it does |
+|---------|-------------|
+| `/vocab` | Start a practice session for today's due words |
+| `show my words` | Vault summary: total, mastered, reviewing, learning, due today |
+| `vocab status` | Same as above |
+
+### Capturing words
+
+| Command | What it does |
+|---------|-------------|
+| `/hunt <word>` | Capture a word from chat (no macOS app needed) |
+| `add the word <word>` | Same — calls `create_word` tool |
+
+Both create the `.md` note and register the word at box 1 due today. If the word already exists, returns an error instead of overwriting.
+
+### Coaching controls
+
+| Command | What it does |
+|---------|-------------|
+| `set coaching <word> inline` | Enable inline feedback when you use this word |
+| `set coaching <word> silent` | Disable inline feedback (default) |
+| `coaching status` | List all words with inline coaching on |
+| `extract synonyms <word>` | Extract and store synonyms for synonym nudge detection |
+
+**Examples:**
+```
+set coaching posit inline
+→ "Inline coaching on for posit. You'll get a note each time you use it."
+
+coaching status
+→ "Inline coaching: posit, ephemeral. All others: silent."
+
+extract synonyms posit
+→ "Synonyms for posit: suggest, propose, assert, claim, hypothesize. Stored."
+```
+
+---
 
 ## Install
-
-Download the pre-built tarball from the [latest release](https://github.com/zzbyy/openclaw-words-hunter/releases/latest) and install it.
 
 **One command:**
 
@@ -22,15 +102,42 @@ Download the pre-built tarball from the [latest release](https://github.com/zzby
 curl -fsSL https://raw.githubusercontent.com/zzbyy/openclaw-words-hunter/main/install.sh | sh
 ```
 
-**Or manually:** go to [Releases](https://github.com/zzbyy/openclaw-words-hunter/releases/latest), download `words-hunter-openclaw.tgz`, then:
+**Or manually:** download `words-hunter-openclaw.tgz` from the [latest release](https://github.com/zzbyy/openclaw-words-hunter/releases/latest), then:
 
 ```bash
 openclaw plugins install /path/to/words-hunter-openclaw.tgz
 ```
 
-Add `words-hunter` to `plugins.allow` in OpenClaw config if you use an allowlist.
+Add `words-hunter` to `plugins.allow` in your OpenClaw config if you use an allowlist.
 
-### Local dev
+---
+
+## Configuration
+
+Set these in OpenClaw's plugin config UI or directly in `openclaw.plugin.json`:
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `vault_path` | auto | Absolute path to your Obsidian vault. Usually auto-discovered from the Words Hunter macOS app — set manually only if auto-discovery fails. |
+| `recap_channel` | first session channel | Channel ID for the weekly Sunday recap. Defaults to whichever channel your first `/vocab` session ran in. |
+
+---
+
+## Data storage
+
+All data lives inside your Obsidian vault under `.wordshunter/`:
+
+| File | Contents |
+|------|----------|
+| `.wordshunter/mastery.json` | SRS schedule, box positions, scores, coaching settings, synonyms |
+| `.wordshunter/pending-nudges.json` | Nudge queue for 15-minute overdue reminders |
+| `.wordshunter/config.json` | Plugin config (vault path, channel settings) |
+
+Each word also has a `.md` note in your words folder (default: vault root) with definitions, sightings history, best sentences, and the `> [!mastery]` callout showing current box and schedule.
+
+---
+
+## Development
 
 ```bash
 git clone https://github.com/zzbyy/openclaw-words-hunter.git
@@ -39,44 +146,72 @@ npm install && npm run build
 openclaw plugins install -l .
 ```
 
-## Configuration
-
-Optional plugin settings (see `openclaw.plugin.json` in this repo):
-
-| Key | Description |
-| --- | --- |
-| `vault_path` | Absolute path to your words directory. Usually auto-discovered from the Words Hunter macOS app — set manually only if auto-discovery fails. |
-| `recap_channel` | Channel ID for weekly vocab recap. Defaults to the channel where the first session ran. |
-
-## Update
-
-Download the new release tarball and re-run the install command above. Archive installs are not tracked by `openclaw plugins update`.
-
-## Development
-
+Run tests:
 ```bash
-npm install
-npm run build
 npm test
+# or
+bun test
 ```
 
 ### Repair CLI
 
-If notes and `.wordshunter/mastery.json` drift (e.g. after manual edits), regenerate `> [!mastery]` callouts from the JSON:
+If the `> [!mastery]` callouts in your word notes drift out of sync with `mastery.json` (e.g. after manual edits), regenerate them:
 
 ```bash
-npm run build
 npm run repair -- --vault /absolute/path/to/your/vault
 ```
 
-`--vault` defaults to the current working directory. When installed as an npm package with a `words-hunter` binary on your `PATH`, you can run `words-hunter repair` the same way.
+`--vault` defaults to the current working directory. When the `words-hunter` binary is on your PATH: `words-hunter repair`.
+
+---
+
+## Architecture
+
+```
+src/
+  index.ts              Plugin entry point — tool registration, message hook, cron jobs
+  types.ts              Shared types (WordEntry, PluginRuntime, ScannedWord, ...)
+  vault.ts              mastery.json read/write with file locking
+  notify-utils.ts       Shared notification sender (channel or logger fallback)
+  hooks/
+    sighting-hook.ts    Outgoing message scanner — word cache + synonym cache
+  tools/
+    scan-vault.ts       List vault words by filter (due / new / all)
+    load-word.ts        Load a word's full page into context
+    record-mastery.ts   Record a practice session, advance SRS schedule
+    record-sighting.ts  Append a sighting to the word's .md note
+    update-page.ts      Write agent-generated content to a word page
+    update-word-meta.ts Update coaching_mode / synonyms without touching SRS state
+    create-word.ts      Create a new word page + mastery entry
+    vault-summary.ts    Return aggregate vault stats
+  srs/
+    scheduler.ts        Leitner box advancement logic
+  notifications.ts      Weekly recap timing helpers
+  watcher.ts            File watcher for vault changes
+  cli/
+    repair.ts           Repair CLI — regenerate callouts from mastery.json
+```
+
+The sighting hook uses a two-cache design: a **word cache** for exact matches and a **synonym cache** for nudge detection. Both share a single `mastery.json` mtime check — one `fs.stat` per message, caches invalidated only when the file changes. Synonym lookup is O(1) via a pre-built `Map<word, entry>` index.
+
+---
 
 ## Privacy
 
-The **sighting hook** (outgoing message scan) runs **only on your machine**: it inspects your own outgoing messages to detect when you use a vocabulary word you have saved in Words Hunter.
+The sighting hook scans your **outgoing messages locally on your machine**. It uses word-boundary regex against your vocab list.
 
-- Only the **matched word**, **timestamp**, and **sentence context** are written into your Obsidian `.md` note — nothing is sent to external servers for this feature.
-- The hook applies to **your outgoing messages**, not the assistant’s replies.
+- Nothing is sent to external servers for sighting detection.
+- Only the matched word, timestamp, and sentence context are written to your local Obsidian `.md` note.
+- The hook fires on your outgoing messages only — not on messages you receive or the agent's replies.
+- Inline coaching notifications are sent to the same channel as the triggering message.
+
+---
+
+## Update
+
+Download the new release tarball and re-run the install command. Archive installs are not tracked by `openclaw plugins update`.
+
+---
 
 ## Contributing
 

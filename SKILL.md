@@ -189,3 +189,22 @@ Two ways to add a word without the macOS app:
    > "capture the word liminal"
 
 Both create the word page in the correct words directory and register it in `mastery.json` (box 1, due today). If the page already exists, a `FILE_EXISTS` message is returned instead of overwriting.
+
+**set coaching [word] inline** — enable inline micro-feedback on sightings.
+  Agent calls: update_word_meta({ word, coaching_mode: 'inline' })
+  Reply: "Inline coaching on for [word]. You'll get a note each time you use it."
+
+**set coaching [word] silent** — disable inline feedback (restore default).
+  Agent calls: update_word_meta({ word, coaching_mode: 'silent' })
+  Reply: "Coaching mode for [word] set to silent."
+
+**coaching status** — list words with inline coaching on.
+  Agent calls: scan_vault({ filter: 'all' }), filters result where coaching_mode is present
+  (client-side; agent does the filtering, not the tool).
+  Reply (some inline): "Inline coaching: posit, ephemeral. All others: silent."
+  Reply (none): "No words have inline coaching on. Use 'set coaching [word] inline' to enable."
+
+**extract synonyms [word]** — extract and store synonyms (LLM-driven).
+  Agent calls: load_word({ word }), reads content, synthesizes synonyms (max 5, lowercase),
+  then calls: update_word_meta({ word, synonyms: [...] })
+  Reply: "Synonyms for [word]: suggest, propose, assert. Stored."

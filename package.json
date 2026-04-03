@@ -26,6 +26,7 @@
   "files": [
     "dist",
     "openclaw.plugin.json",
+    "SKILL.md",
     "README.md",
     "LICENSE"
   ],

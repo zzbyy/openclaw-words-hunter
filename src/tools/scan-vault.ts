@@ -51,7 +51,10 @@ export async function scanVault(
   if (filter === 'due') {
     const due = entries
       .filter(e => isDue(e, today))
-      .map(e => ({ word: e.word, status: e.status, next_review: e.next_review }));
+      .map(e => ({
+        word: e.word, status: e.status, next_review: e.next_review,
+        ...(e.coaching_mode === 'inline' ? { coaching_mode: 'inline' as const } : {}),
+      }));
     return ok(due);
   }
 
@@ -60,6 +63,7 @@ export async function scanVault(
     word: e.word,
     status: e.status,
     next_review: e.next_review,
+    ...(e.coaching_mode === 'inline' ? { coaching_mode: 'inline' as const } : {}),
   }));
   return ok(all);
 }
