@@ -1,14 +1,14 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import lockfile from 'proper-lockfile';
-import { ToolResult, ToolError, VaultConfig, MasteryStore, NudgeQueue, ok, err } from './types.js';
+import { ToolResult, ToolError, VaultConfig, PluginSidecarConfig, MasteryStore, NudgeQueue, ok, err } from './types.js';
+import { writeTextFileAtomic, withFileLock } from './io-utils.js';
 
 // ============================================================
 // Config loading
 // ============================================================
 
 export async function loadVaultConfig(vaultRoot: string): Promise<ToolResult<VaultConfig>> {
-  const configPath = path.join(vaultRoot, '.wordshunter', 'config.json');
+  const configPath = configJsonPath(vaultRoot);
   let raw: string;
   try {
     raw = await fs.readFile(configPath, 'utf8');
@@ -41,6 +41,65 @@ export async function loadVaultConfig(vaultRoot: string): Promise<ToolResult<Vau
   return ok({
     vault_path: vaultPath,
     words_folder: typeof obj['words_folder'] === 'string' ? obj['words_folder'] : '',
+  });
+}
+
+export function configJsonPath(vaultRoot: string): string {
+  return path.join(vaultRoot, '.wordshunter', 'config.json');
+}
+
+function parsePluginSidecarConfig(raw: string): PluginSidecarConfig | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+
+  if (typeof parsed !== 'object' || parsed === null) return null;
+  const obj = parsed as Record<string, unknown>;
+  if (typeof obj['vault_path'] !== 'string' || !obj['vault_path']) return null;
+
+  return {
+    vault_path: obj['vault_path'],
+    words_folder: typeof obj['words_folder'] === 'string' ? obj['words_folder'] : '',
+    primary_channel: typeof obj['primary_channel'] === 'string' ? obj['primary_channel'] : undefined,
+    last_weekly_recap_at: typeof obj['last_weekly_recap_at'] === 'string' ? obj['last_weekly_recap_at'] : undefined,
+  };
+}
+
+export async function readPluginSidecarConfig(vaultRoot: string): Promise<PluginSidecarConfig | null> {
+  try {
+    const raw = await fs.readFile(configJsonPath(vaultRoot), 'utf8');
+    return parsePluginSidecarConfig(raw);
+  } catch {
+    return null;
+  }
+}
+
+export async function writePluginSidecarConfig(
+  vaultRoot: string,
+  config: PluginSidecarConfig,
+): Promise<ToolResult<void>> {
+  const configPath = configJsonPath(vaultRoot);
+  try {
+    await writeTextFileAtomic(configPath, JSON.stringify(config, null, 2), 'wh-config');
+    return ok(undefined);
+  } catch (e) {
+    return err({ code: 'WRITE_FAILED', message: `Could not write config.json: ${String(e)}` });
+  }
+}
+
+export async function mutatePluginSidecarConfig<T>(
+  vaultRoot: string,
+  fn: (current: PluginSidecarConfig) => Promise<{ next: PluginSidecarConfig; value: T }> | { next: PluginSidecarConfig; value: T },
+): Promise<ToolResult<T>> {
+  return withSidecarLock(vaultRoot, async () => {
+    const current = (await readPluginSidecarConfig(vaultRoot)) ?? { vault_path: vaultRoot, words_folder: '' };
+    const { next, value } = await fn(current);
+    const writeResult = await writePluginSidecarConfig(vaultRoot, next);
+    if (!writeResult.ok) return writeResult;
+    return ok(value);
   });
 }
 
@@ -111,17 +170,7 @@ export function assertInVault(
  */
 export async function withMasteryLock<T>(jsonPath: string, fn: () => Promise<T>): Promise<T> {
   const dir = path.dirname(jsonPath);
-  await fs.mkdir(dir, { recursive: true });
-  const lockTarget = path.join(dir, '.mastery.lock');
-  await fs.writeFile(lockTarget, '', { flag: 'a' });
-  const release = await lockfile.lock(lockTarget, {
-    retries: { retries: 3, minTimeout: 100 },
-  });
-  try {
-    return await fn();
-  } finally {
-    await release();
-  }
+  return withFileLock(dir, '.mastery.lock', fn);
 }
 
 export async function readMasteryStore(jsonPath: string): Promise<ToolResult<MasteryStore>> {
@@ -160,15 +209,10 @@ export async function writeMasteryStore(
   jsonPath: string,
   store: MasteryStore,
 ): Promise<ToolResult<void>> {
-  const dir = path.dirname(jsonPath);
-  const tmp = path.join(dir, `.wh-mastery-${Date.now()}-${Math.random().toString(36).slice(2)}.json.tmp`);
   try {
-    await fs.mkdir(dir, { recursive: true });
-    await fs.writeFile(tmp, JSON.stringify(store, null, 2), 'utf8');
-    await fs.rename(tmp, jsonPath);
+    await writeTextFileAtomic(jsonPath, JSON.stringify(store, null, 2), 'wh-mastery');
     return ok(undefined);
   } catch (e) {
-    try { await fs.unlink(tmp); } catch { /* best effort */ }
     return err({ code: 'WRITE_FAILED', message: `Could not write mastery.json: ${String(e)}` });
   }
 }
@@ -191,15 +235,33 @@ export async function writeNudgeQueue(
   queuePath: string,
   queue: NudgeQueue,
 ): Promise<ToolResult<void>> {
-  const dir = path.dirname(queuePath);
-  const tmp = path.join(dir, `.wh-nudges-${Date.now()}-${Math.random().toString(36).slice(2)}.json.tmp`);
   try {
-    await fs.mkdir(dir, { recursive: true });
-    await fs.writeFile(tmp, JSON.stringify(queue, null, 2), 'utf8');
-    await fs.rename(tmp, queuePath);
+    await writeTextFileAtomic(queuePath, JSON.stringify(queue, null, 2), 'wh-nudges');
     return ok(undefined);
   } catch (e) {
-    try { await fs.unlink(tmp); } catch { /* best effort */ }
     return err({ code: 'WRITE_FAILED', message: `Could not write pending-nudges.json: ${String(e)}` });
   }
+}
+
+export async function withNudgeQueueLock<T>(queuePath: string, fn: () => Promise<T>): Promise<T> {
+  const dir = path.dirname(queuePath);
+  return withFileLock(dir, '.pending-nudges.lock', fn);
+}
+
+export async function mutateNudgeQueue<T>(
+  queuePath: string,
+  fn: (queue: NudgeQueue) => Promise<{ queue: NudgeQueue; value: T }> | { queue: NudgeQueue; value: T },
+): Promise<ToolResult<T>> {
+  return withNudgeQueueLock(queuePath, async () => {
+    const current = await readNudgeQueue(queuePath);
+    const { queue, value } = await fn(current);
+    const writeResult = await writeNudgeQueue(queuePath, queue);
+    if (!writeResult.ok) return writeResult;
+    return ok(value);
+  });
+}
+
+async function withSidecarLock<T>(vaultRoot: string, fn: () => Promise<T>): Promise<T> {
+  const dir = path.join(vaultRoot, '.wordshunter');
+  return withFileLock(dir, '.config.lock', fn);
 }

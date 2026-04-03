@@ -35,6 +35,11 @@ export interface VaultConfig {
   words_folder: string;  // subfolder name, or "" for vault root
 }
 
+export interface PluginSidecarConfig extends VaultConfig {
+  primary_channel?: string;
+  last_weekly_recap_at?: string;
+}
+
 // ============================================================
 // Mastery JSON sidecar schema (.wordshunter/mastery.json)
 // ============================================================

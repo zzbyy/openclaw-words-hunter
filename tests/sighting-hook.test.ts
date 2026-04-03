@@ -74,4 +74,43 @@ describe('sighting-hook', () => {
       await cleanup();
     }
   });
+
+  it('refreshes cached matchers after mastery.json changes', async () => {
+    const { vaultPath, config, cleanup } = await makeVault(['posit']);
+    try {
+      const updatedStore: MasteryStore = {
+        version: 1,
+        words: {
+          posit: { word: 'posit', box: 1, status: 'learning', score: 0, last_practiced: '', next_review: '2026-03-29', sessions: 0, failures: [], best_sentences: [] },
+          liminal: { word: 'liminal', box: 1, status: 'learning', score: 0, last_practiced: '', next_review: '2026-03-29', sessions: 0, failures: [], best_sentences: [] },
+        },
+      };
+      await writeFile(join(vaultPath, '.wordshunter', 'mastery.json'), JSON.stringify(updatedStore), 'utf8');
+      await writeFile(join(vaultPath, 'Words', 'liminal.md'), '> [!info] liminal\n> //\n\n## Sightings\n', 'utf8');
+
+      await onOutgoingMessage(config, 'The liminal hallway felt surreal.');
+      const updated = await readFile(join(vaultPath, 'Words', 'liminal.md'), 'utf8');
+      expect(updated).toContain('The liminal hallway felt surreal.');
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it('records the extracted sentence for long messages', async () => {
+    const { vaultPath, config, cleanup } = await makeVault(['posit']);
+    try {
+      const longMessage = [
+        'This introduction is intentionally long and says nothing important at all.',
+        'A second sentence keeps stretching the message far beyond the short-message threshold.',
+        'I posit that the final sentence should be the one we keep.',
+      ].join(' ');
+
+      await onOutgoingMessage(config, longMessage);
+      const updated = await readFile(join(vaultPath, 'Words', 'posit.md'), 'utf8');
+      expect(updated).toContain('I posit that the final sentence should be the one we keep.');
+      expect(updated).not.toContain('This introduction is intentionally long');
+    } finally {
+      await cleanup();
+    }
+  });
 });

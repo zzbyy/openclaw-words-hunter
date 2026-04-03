@@ -47,6 +47,24 @@ describe('record_sighting', () => {
     }
   });
 
+  it('prepends repeated sightings without dropping earlier entries', async () => {
+    const { vaultPath, config, cleanup } = await makeVault();
+    try {
+      const initial = readFileSync(join(FIXTURES, 'posit-no-mastery.md'), 'utf8');
+      await writeFile(join(vaultPath, 'Words', 'posit.md'), initial, 'utf8');
+
+      await recordSighting(config, { word: 'posit', sentence: 'I posit this first.' });
+      await recordSighting(config, { word: 'posit', sentence: 'I posit this second.' });
+
+      const updated = await readFile(join(vaultPath, 'Words', 'posit.md'), 'utf8');
+      expect(updated).toContain('I posit this first.');
+      expect(updated).toContain('I posit this second.');
+      expect(updated.indexOf('I posit this second.')).toBeLessThan(updated.indexOf('I posit this first.'));
+    } finally {
+      await cleanup();
+    }
+  });
+
   it('missing .md file → FILE_NOT_FOUND', async () => {
     const { config, cleanup } = await makeVault();
     try {

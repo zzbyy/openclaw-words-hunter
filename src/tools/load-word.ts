@@ -1,7 +1,6 @@
-import fs from 'node:fs/promises';
-import path from 'node:path';
 import { ToolResult, VaultConfig, WordEntry, ok, err } from '../types.js';
-import { masteryJsonPath, wordsFolderPath, assertInVault, readMasteryStore, validateWord } from '../vault.js';
+import { masteryJsonPath, readMasteryStore } from '../vault.js';
+import { readWordPage } from '../page-utils.js';
 
 export interface LoadWordResult {
   word: string;
@@ -19,28 +18,15 @@ export async function loadWord(
   config: VaultConfig,
   word: string,
 ): Promise<ToolResult<LoadWordResult>> {
-  const inputErr = validateWord(word);
-  if (inputErr) return { ok: false, error: inputErr };
-
-  const wordLower = word.toLowerCase();
-  const wordsDir = wordsFolderPath(config);
-  const mdPath = path.join(wordsDir, `${wordLower}.md`);
-
-  // Path traversal check
-  const escapeErr = assertInVault(config.vault_path, mdPath);
-  if (escapeErr) return { ok: false, error: escapeErr };
-
-  // Read .md file
-  let content: string;
-  try {
-    content = await fs.readFile(mdPath, 'utf8');
-  } catch (e: unknown) {
-    const code = (e as NodeJS.ErrnoException).code;
-    if (code === 'ENOENT') {
-      return err({ code: 'FILE_NOT_FOUND', message: `Word page '${wordLower}.md' not found.`, word: wordLower });
+  const pageResult = await readWordPage(config, word);
+  if (!pageResult.ok) {
+    if (pageResult.error.code === 'WRITE_FAILED') {
+      return err({ code: 'FILE_NOT_FOUND', message: pageResult.error.message, word: word.toLowerCase() });
     }
-    return err({ code: 'FILE_NOT_FOUND', message: `Could not read '${wordLower}.md': ${String(e)}`, word: wordLower });
+    return pageResult;
   }
+
+  const { wordLower, content } = pageResult.data;
 
   // Read mastery state
   const jsonPath = masteryJsonPath(config);

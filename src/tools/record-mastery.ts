@@ -3,8 +3,6 @@ import path from 'node:path';
 import { ToolResult, ToolError, VaultConfig, WordEntry, BestSentence, ok, err } from '../types.js';
 import {
   masteryJsonPath,
-  wordsFolderPath,
-  assertInVault,
   readMasteryStore,
   writeMasteryStore,
   validateWord,
@@ -12,6 +10,7 @@ import {
 } from '../vault.js';
 import { advance, todayString, MASTERY_THRESHOLD } from '../srs/scheduler.js';
 import { upsertCallout } from '../callout-renderer.js';
+import { readWordPage, writeWordPageAtomic, prependLineToSection, insertSectionAfterCallout } from '../page-utils.js';
 
 export interface RecordMasteryInput {
   word: string;
@@ -105,29 +104,20 @@ export async function recordMastery(
   const { box, status, next_review } = updatedEntry;
 
   // Update .md page: append History + regenerate callout
-  const wordsDir = wordsFolderPath(config);
-  const mdPath = path.join(wordsDir, `${wordLower}.md`);
-  const escapeErr = assertInVault(config.vault_path, mdPath);
-  if (escapeErr) return { ok: false, error: escapeErr };
-
   try {
-    let content = await fs.readFile(mdPath, 'utf8');
+    const pageResult = await readWordPage(config, wordLower);
+    if (!pageResult.ok) throw new Error(pageResult.error.message);
+    const { mdPath, content: pageContent } = pageResult.data;
+    let content = pageContent;
 
     // Append history line (sentences = 1 if a sentence was saved this session, 0 otherwise)
     const sentencesThisSession = (input.best_sentence && score >= MASTERY_THRESHOLD) ? 1 : 0;
     const historyLine = `- ${today}: box ${currentBox}→${box}, score ${score}, sentences: ${sentencesThisSession}`;
-    const historyRegex = /^### History\n/m;
-    if (historyRegex.test(content)) {
-      content = content.replace(historyRegex, `### History\n${historyLine}\n`);
+    if (/^### History\n/m.test(content)) {
+      content = prependLineToSection(content, '### History', historyLine);
     } else {
-      // Insert ### History section inside ## Mastery callout area, or append
-      const masteryCalloutRegex = /^> \[!mastery\]/m;
-      if (masteryCalloutRegex.test(content)) {
-        // Append after the callout block
-        content = content.replace(
-          /(> \[!mastery\][\s\S]*?)(\n\n|\n##|\n---)/m,
-          `$1\n\n### History\n${historyLine}\n$2`,
-        );
+      if (/^> \[!mastery\]/m.test(content)) {
+        content = insertSectionAfterCallout(content, 'mastery', '### History', historyLine);
       } else {
         content += `\n\n### History\n${historyLine}\n`;
       }
@@ -137,12 +127,8 @@ export async function recordMastery(
     content = upsertCallout(content, updatedEntry);
 
     // Write .md atomically
-    const tmp = path.join(
-      path.dirname(mdPath),
-      `.wh-mastery-${wordLower}-${Date.now()}-${Math.random().toString(36).slice(2)}.tmp`,
-    );
-    await fs.writeFile(tmp, content, 'utf8');
-    await fs.rename(tmp, mdPath);
+    const writeResult = await writeWordPageAtomic(mdPath, content, `wh-mastery-${wordLower}`);
+    if (!writeResult.ok) throw new Error(writeResult.error.message);
   } catch {
     // .md write failure is non-fatal — mastery.json is already saved
     // The callout is a display view; a failed update won't corrupt state.
