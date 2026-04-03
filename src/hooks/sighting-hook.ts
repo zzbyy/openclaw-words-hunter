@@ -1,9 +1,16 @@
 import fs from 'node:fs/promises';
-import type { VaultConfig, WordEntry, PluginRuntime } from '../types.js';
+import type { VaultConfig, WordEntry } from '../types.js';
 import { readMasteryStore, masteryJsonPath } from '../vault.js';
 import { recordSighting } from '../tools/record-sighting.js';
 import { escapeRegex, wordBoundaryRegex } from '../page-utils.js';
-import { emitPluginNotification } from '../notify-utils.js';
+
+export interface CoachingNote {
+  type: 'direct' | 'synonym';
+  word: string;
+  box: number;
+  shortDef?: string;
+  synonym?: string;
+}
 
 interface SynonymCacheEntry { synonym: string; vaultWord: string; regex: RegExp }
 interface HookCache {
@@ -21,17 +28,18 @@ let hookCache: HookCache | null = null;
  * Scans outgoing messages for captured words using word-boundary regex.
  * On match: calls record_sighting. Does NOT update SRS score (visibility only).
  * Only fires on user outgoing messages, not agent responses.
- * When runtime is provided and a word has coaching_mode='inline', sends inline feedback.
+ *
+ * Returns coaching notes for words that are not silenced and below Box 4.
+ * Sightings are always recorded regardless of coaching mode or box.
  */
 export async function onOutgoingMessage(
   config: VaultConfig,
   messageText: string,
   channelId?: string,
-  runtime?: PluginRuntime,
-): Promise<void> {
+): Promise<CoachingNote[]> {
   const jsonPath = masteryJsonPath(config);
   const cache = await getCaches(jsonPath);
-  if (!cache || cache.matchers.length === 0) return;
+  if (!cache || cache.matchers.length === 0) return [];
 
   // Step 1: direct hits
   const directHits = new Map<string, WordEntry>();
@@ -50,7 +58,7 @@ export async function onOutgoingMessage(
     }
   }
 
-  // Step 3: log sightings — direct hits only
+  // Step 3: log sightings — direct hits only (all words, regardless of coaching mode or box)
   await Promise.allSettled(
     [...directHits.values()].map(entry => {
       const sentence = extractSentence(messageText, entry.word) ?? messageText.trim();
@@ -58,49 +66,31 @@ export async function onOutgoingMessage(
     })
   );
 
-  // Step 4: inline notifications — cap 2 per message, direct wins slots first
-  if (runtime) {
-    const inlineDirectHits = [...directHits.values()]
-      .filter(e => e.coaching_mode === 'inline')
-      .sort((a, b) => b.box - a.box || a.word.localeCompare(b.word))
-      .slice(0, 2);
+  // Step 4: build coaching notes — on by default, suppress for silent or Box 4+
+  const notes: CoachingNote[] = [];
 
-    const remainingSlots = 2 - inlineDirectHits.length;
-    const inlineSynonymHits = remainingSlots > 0
-      ? [...synonymHits.values()]
-          .filter(h => h.entry.coaching_mode === 'inline')
-          .sort((a, b) => b.entry.box - a.entry.box || a.vaultWord.localeCompare(b.vaultWord))
-          .slice(0, remainingSlots)
-      : [];
+  const eligibleDirectHits = [...directHits.values()]
+    .filter(e => e.coaching_mode !== 'silent' && e.box < 4)
+    .sort((a, b) => b.box - a.box || a.word.localeCompare(b.word))
+    .slice(0, 2);
 
-    await Promise.allSettled([
-      ...inlineDirectHits.map(e => sendInlineFeedback(runtime, channelId, e)),
-      ...inlineSynonymHits.map(h => sendSynonymUpgrade(runtime, channelId, h.synonym, h.entry)),
-    ]);
+  for (const e of eligibleDirectHits) {
+    notes.push({ type: 'direct', word: e.word, box: e.box, shortDef: e.short_definition });
   }
-}
 
-async function sendInlineFeedback(
-  runtime: PluginRuntime,
-  channelId: string | undefined,
-  entry: WordEntry,
-): Promise<void> {
-  await emitPluginNotification(
-    runtime, 'inline', channelId ?? null,
-    `${entry.word} -- naturally used. Box ${entry.box}. [#vocab to practice]`
-  );
-}
+  const remainingSlots = 2 - notes.length;
+  if (remainingSlots > 0) {
+    const eligibleSynonymHits = [...synonymHits.values()]
+      .filter(h => h.entry.coaching_mode !== 'silent' && h.entry.box < 4)
+      .sort((a, b) => b.entry.box - a.entry.box || a.vaultWord.localeCompare(b.vaultWord))
+      .slice(0, remainingSlots);
 
-async function sendSynonymUpgrade(
-  runtime: PluginRuntime,
-  channelId: string | undefined,
-  synonym: string,
-  vaultEntry: WordEntry,
-): Promise<void> {
-  await emitPluginNotification(
-    runtime, 'inline', channelId ?? null,
-    `You wrote "${synonym}" -- but you've been studying "${vaultEntry.word}" (similar meaning). Consider swapping? [#vocab to practice]`
-  );
+    for (const h of eligibleSynonymHits) {
+      notes.push({ type: 'synonym', word: h.vaultWord, box: h.entry.box, shortDef: h.entry.short_definition, synonym: h.synonym });
+    }
+  }
+
+  return notes;
 }
 
 /**

@@ -31,19 +31,21 @@ Each practice session scores your original sentences across meaning (15pts), reg
 
 ### Sighting detection
 
-The plugin monitors your outgoing messages for captured vocab words using word-boundary matching (case-insensitive). Every sighting is appended to the word's `## Sightings` section — no external data sent, no confirmation messages. Passive, silent, automatic.
+The plugin monitors your outgoing messages for captured vocab words using word-boundary matching (case-insensitive). Every sighting is appended to the word's `## Sightings` section. Passive, automatic.
 
-### Proactive coaching (per-word, opt-in)
+### Proactive coaching (on by default)
 
-Two modes — both off by default:
+When you use a vocab word in a message, a quiet coaching footnote is appended to the agent's reply:
 
-**Inline micro-feedback** (`coaching_mode: inline`): when you use a word you're studying in a message, the agent sends a one-line reply in the channel:
-> `posit -- naturally used. Box 3. [#vocab to practice]`
+> `#vocab deliberate — done on purpose. Nice use, keep it up.`
 
-**Synonym nudge**: when you use a weaker synonym of a studied word, the agent suggests the stronger form:
-> `You wrote "suggest" -- but you've been studying "posit" (similar meaning). Consider swapping? [#vocab to practice]`
+When you use a weaker synonym of a word you're studying, the agent nudges you:
 
-Synonyms are stored per-word (via `extract synonyms`) and matched at runtime with zero LLM cost. Common synonyms (appearing across too many vault words) are automatically filtered out to avoid noise.
+> `#vocab you wrote "suggest" — consider "posit" (to assert as fact). Box 2.`
+
+Coaching is automatic for all words below Box 4 (mastered). No setup needed. Mastered words are sighted silently. To suppress footnotes for a noisy word, use `set coaching <word> silent`.
+
+Synonyms are stored per-word (via `extract synonyms`) and matched at runtime with zero LLM cost. Common synonyms (appearing across too many vault words) are automatically filtered out.
 
 ### Weekly recap
 
@@ -56,37 +58,39 @@ Every Sunday at 9am, a summary is sent to your primary channel:
 
 ### Session commands
 
-| Command | What it does |
-|---------|-------------|
-| `/vocab` | Start a practice session for today's due words |
+| Phrase | What it does |
+|--------|-------------|
+| `let's review words` | Start a practice session for today's due words |
+| `any words to review?` | Same as above |
 | `show my words` | Vault summary: total, mastered, reviewing, learning, due today |
-| `vocab status` | Same as above |
 
 ### Capturing words
 
-| Command | What it does |
-|---------|-------------|
-| `/hunt <word>` | Capture a word from chat (no macOS app needed) |
-| `add the word <word>` | Same — calls `create_word` tool |
+| Phrase | What it does |
+|--------|-------------|
+| `add word <word>` | Capture a word from chat (handled by message hook) |
+| `add words <w1> <w2>` | Capture multiple words at once |
+| `hunt <word>` | Same as `add word` |
+| `vocab add <word>` | Same as `add word` |
 
-Both create the `.md` note and register the word at box 1 due today. If the word already exists, returns an error instead of overwriting.
+All patterns create the `.md` note and register the word at box 1 due today. If the word already exists, it's skipped. More natural phrasing like "I want to study ephemeral" is handled by the agent via the `create_word` tool.
 
 ### Coaching controls
 
 | Command | What it does |
 |---------|-------------|
-| `set coaching <word> inline` | Enable inline feedback when you use this word |
-| `set coaching <word> silent` | Disable inline feedback (default) |
-| `coaching status` | List all words with inline coaching on |
+| `set coaching <word> silent` | Silence coaching footnotes for this word |
+| `set coaching <word> inline` | Re-enable coaching footnotes (restores default) |
+| `coaching status` | List words with coaching silenced |
 | `extract synonyms <word>` | Extract and store synonyms for synonym nudge detection |
 
 **Examples:**
 ```
-set coaching posit inline
-→ "Inline coaching on for posit. You'll get a note each time you use it."
+set coaching posit silent
+→ "Coaching silenced for posit. No more footnotes when you use it."
 
 coaching status
-→ "Inline coaching: posit, ephemeral. All others: silent."
+→ "Silenced: posit. All others: coaching on (default)."
 
 extract synonyms posit
 → "Synonyms for posit: suggest, propose, assert, claim, hypothesize. Stored."
@@ -173,6 +177,7 @@ src/
   types.ts              Shared types (WordEntry, PluginRuntime, ScannedWord, ...)
   vault.ts              mastery.json read/write with file locking
   notify-utils.ts       Shared notification sender (channel or logger fallback)
+  coaching-format.ts    Footnote formatter for coaching notes in agent replies
   hooks/
     sighting-hook.ts    Outgoing message scanner — word cache + synonym cache
   tools/
@@ -193,6 +198,8 @@ src/
 ```
 
 The sighting hook uses a two-cache design: a **word cache** for exact matches and a **synonym cache** for nudge detection. Both share a single `mastery.json` mtime check — one `fs.stat` per message, caches invalidated only when the file changes. Synonym lookup is O(1) via a pre-built `Map<word, entry>` index.
+
+Coaching footnotes are appended to agent replies via the `message_sending` hook. The sighting hook detects words and returns coaching data; the `message_sending` hook formats and appends it to the outgoing message. Zero LLM cost for coaching.
 
 ---
 

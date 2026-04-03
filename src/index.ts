@@ -28,10 +28,15 @@ import { updatePage } from './tools/update-page.js';
 import { recordSighting } from './tools/record-sighting.js';
 import { vaultSummary } from './tools/vault-summary.js';
 import { onOutgoingMessage } from './hooks/sighting-hook.js';
+import type { CoachingNote } from './hooks/sighting-hook.js';
+import { formatCoachingFootnotes } from './coaching-format.js';
 import { createWord } from './tools/create-word.js';
 import { updateWordMeta } from './tools/update-word-meta.js';
 import { startWatcher } from './watcher.js';
 import { isWeeklyRecapDue, resolveRecapChannel } from './notifications.js';
+
+/** Pending coaching footnotes keyed by channelId, consumed by message_sending hook. */
+const pendingCoachingNotes = new Map<string, CoachingNote[]>();
 
 /** Wrap any ToolResult into the AgentToolResult format OpenClaw expects. */
 function toAgentResult(result: ToolResult<unknown>): { content: { type: 'text'; text: string }[]; details: unknown } {
@@ -223,7 +228,7 @@ export default definePluginEntry({
     api.registerTool({
       name: 'update_word_meta',
       label: 'Update Word Meta',
-      description: "Update per-word coaching metadata without affecting SRS state. Use to set coaching_mode ('inline' to get channel notifications on sightings, 'silent' to stop) and to store synonym lists. Does not change box, score, or next_review.",
+      description: "Update per-word coaching metadata without affecting SRS state. Coaching is on by default for all words. Use coaching_mode 'silent' to suppress inline notifications for noisy words. Does not change box, score, or next_review.",
       parameters: Type.Object({
         word: Type.String(),
         coaching_mode: Type.Optional(Type.Union([Type.Literal('silent'), Type.Literal('inline')])),
@@ -249,31 +254,59 @@ export default definePluginEntry({
       },
     });
 
-    // --- Message hook ---
-    // Handles /hunt <word> slash command and scans for in-the-wild sightings.
+    // --- Message hooks ---
+    // message_received: /hunt command + sighting detection → stores coaching notes
+    // message_sending: appends coaching footnotes to agent's outgoing reply
     api.on('message_received', async (event, ctx) => {
       const configResult = await configPromise;
       if (!configResult.ok) return;
 
-      // /hunt <word> — create a word page directly from chat
-      const huntMatch = event.content.trim().match(/^\/hunt\s+(.+)$/i);
-      if (huntMatch) {
-        const word = huntMatch[1].trim().toLowerCase();
-        const result = await createWord(configResult.data, { word });
-        if (result.ok) {
-          const lookupNote = result.data.lookup === 'ok'
-            ? 'Cambridge lookup: ok'
-            : `Cambridge lookup: ${result.data.lookup}`;
-          api.logger.info(`[words-hunter] /hunt: created page for '${word}' (${lookupNote})`);
-        } else {
-          api.logger.info(`[words-hunter] /hunt '${word}': ${result.error.message}`);
+      // Quick-add words from chat — natural language + legacy /hunt
+      // Patterns: "add word X", "add this word X", "add words X Y Z",
+      //           "hunt X", "vocab add X", "/hunt X"
+      const addMatch = event.content.trim().match(
+        /^(?:\/hunt|hunt|add\s+(?:this\s+)?words?|vocab\s+add)\s+(.+)$/i
+      );
+      if (addMatch) {
+        const raw = addMatch[1].trim();
+        const words = raw.split(/[\s,]+/).map(w => w.toLowerCase().trim()).filter(Boolean);
+        for (const word of words) {
+          const result = await createWord(configResult.data, { word });
+          if (result.ok) {
+            const lookupNote = result.data.lookup === 'ok'
+              ? 'Cambridge lookup: ok'
+              : `Cambridge lookup: ${result.data.lookup}`;
+            api.logger.info(`[words-hunter] add: created page for '${word}' (${lookupNote})`);
+          } else {
+            api.logger.info(`[words-hunter] add '${word}': ${result.error.message}`);
+          }
         }
-        return; // don't run sighting scan on a slash command
+        return; // don't run sighting scan on an add command
       }
 
-      await onOutgoingMessage(configResult.data, event.content, ctx.channelId, api);
+      const notes = await onOutgoingMessage(configResult.data, event.content, ctx.channelId);
+      if (notes.length > 0 && ctx.channelId) {
+        const existing = pendingCoachingNotes.get(ctx.channelId) ?? [];
+        pendingCoachingNotes.set(ctx.channelId, [...existing, ...notes]);
+      }
       // Also persist primary_channel for nudge routing
       void persistPrimaryChannel(configResult.data, ctx.channelId);
+    });
+
+    api.on('message_sending', async (event) => {
+      if (!event.to) return;
+      const notes = pendingCoachingNotes.get(event.to);
+      if (!notes || notes.length === 0) return;
+      pendingCoachingNotes.delete(event.to);
+      try {
+        const footnotes = formatCoachingFootnotes(notes);
+        if (footnotes) {
+          api.logger.info(`[words-hunter coaching] appended ${notes.length} footnote(s) to reply`);
+          return { content: event.content + '\n\n' + footnotes };
+        }
+      } catch (err) {
+        api.logger.info(`[words-hunter coaching] format error: ${String(err)}`);
+      }
     });
 
     // --- Background crons via gateway_start ---
@@ -374,7 +407,7 @@ async function fireOverdueNudges(config: VaultConfig, runtime: PluginRuntime): P
       runtime,
       'nudge',
       sidecar.primary_channel,
-      `"${nudge.word}" — captured 24h ago. Type /vocab to practice.`,
+      `"${nudge.word}" — captured 24h ago. Say "let's review words" to practice.`,
     );
   }
 }

@@ -130,19 +130,33 @@ export async function createWord(
   });
 
   // Cambridge lookup — best-effort, fills template vars in-place
-  const lookup = await runLookup(config, word);
+  const { lookup, shortDef } = await runLookup(config, word);
+
+  // Patch short_definition into mastery.json if lookup succeeded
+  if (shortDef) {
+    await withMasteryLock(jsonPath, async () => {
+      const storeResult = await readMasteryStore(jsonPath);
+      if (!storeResult.ok) return;
+      const entry = storeResult.data.words[word];
+      if (entry) {
+        entry.short_definition = shortDef;
+        await writeMasteryStore(jsonPath, storeResult.data);
+      }
+    });
+  }
 
   return ok({ word, path: filePath, lookup });
 }
 
-async function runLookup(config: VaultConfig, word: string): Promise<LookupStatus> {
+async function runLookup(config: VaultConfig, word: string): Promise<{ lookup: LookupStatus; shortDef?: string }> {
   try {
     const content = await cambridgeLookup(word);
-    if (!content) return 'not_found';
+    if (!content) return { lookup: 'not_found' };
     await fillWordPage(config, word, content);
-    return 'ok';
+    const shortDef = content.entries[0]?.senses[0]?.definition;
+    return { lookup: 'ok', shortDef: shortDef || undefined };
   } catch (e) {
-    if (e instanceof CambridgeBlockedError) return 'blocked';
-    return 'failed';
+    if (e instanceof CambridgeBlockedError) return { lookup: 'blocked' };
+    return { lookup: 'failed' };
   }
 }

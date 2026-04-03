@@ -7,13 +7,22 @@ for any captured Words Hunter vocabulary.
 
 ## Trigger commands
 
-The following commands start a session or show vault status. These are fixed triggers
-matched exactly (case-insensitive) — no free-form NLU required:
+The following phrases start a session or show vault status. Recognize the **intent**,
+not the exact wording. When the user asks about their vocab, wants to review, or asks
+what's due, treat it as a trigger.
 
-- `/vocab` — start a mastery session for due words
-- `show my words` — show vault summary
-- `vocab status` — show vault summary
-- `how many words do I have` — show vault summary
+**Start a mastery session** (call `scan_vault(filter="due")`):
+- "let's review words"
+- "any words to review today?"
+- "what's due?"
+- "vocab time"
+- "practice vocabulary"
+
+**Show vault summary** (call `vault_summary`):
+- "show my words"
+- "what do I have in my word vault?"
+- "vocab status"
+- "how many words do I have"
 
 ---
 
@@ -23,7 +32,7 @@ matched exactly (case-insensitive) — no free-form NLU required:
 
 Call `scan_vault(filter="due")`. If no due words:
 > "Nothing due today! Your next word is due on {earliest next_review date}.
-> Type /vocab anytime to practice early."
+> Say 'let's review words' anytime to practice early."
 
 If due words found:
 > "You have {N} word(s) to practice today: {word list}.
@@ -108,7 +117,7 @@ After all due words:
 > "Session done! {N} words reviewed.
 > Mastered today: {graduation_words or 'none'}.
 > Next session: {earliest next_review date}.
-> Type /vocab to practice early or see your stats with 'show my words'."
+> Say 'let's review words' to practice early, or 'show my words' for stats."
 
 ---
 
@@ -126,17 +135,30 @@ After all due words:
 
 If the user stops responding mid-session:
 - After **60 minutes** of no reply: send once:
-  > "Session paused — resume with /vocab when you're ready. Progress so far has been saved."
+  > "Session paused — say 'let's review words' when you're ready. Progress so far has been saved."
 - Save any mastery records already written. The session state is not held in memory —
   next /vocab will resume with any remaining due words.
 
 ---
 
-## Sighting detection (passive — no user interaction)
+## Sighting detection + coaching (passive — no user interaction)
 
 The sighting hook fires independently on every outgoing message. When a captured word
 appears in a message the user sends (word-boundary match, case-insensitive), `record_sighting`
-is called automatically. No confirmation or notification sent — sightings are logged silently.
+is called automatically.
+
+Coaching is **on by default** for all words below Box 4. A brief footnote is appended
+to the agent's reply as a blockquote:
+
+Direct hit:
+> \#vocab deliberate — done on purpose. Nice use, keep it up.
+
+Synonym nudge (when the user writes a weaker synonym of a studied word):
+> \#vocab you wrote "suggest" — consider "posit" (to assert as fact). Box 2.
+
+Cap: 2 footnotes per message. Direct hits get priority. Mastered words (Box 4+) are
+sighted silently (no footnote). Words with `coaching_mode: 'silent'` are also sighted
+silently.
 
 ---
 
@@ -163,46 +185,47 @@ not on messages you receive.
 
 ## On-demand commands
 
-| Command | Response |
-|---------|----------|
-| `/vocab` | Start session for due words |
-| `/hunt <word>` | Capture a word directly from chat (no macOS app needed) |
-| `add the word <word>` | Same as `/hunt` — calls `create_word` tool |
-| `show my words` | Vault summary (total, mastered, reviewing, learning, due) |
-| `vocab status` | Same as "show my words" |
-| `how many words do I have` | Same as "show my words" |
+| Phrase | What happens |
+|--------|-------------|
+| "let's review words" | Start mastery session for due words |
+| "show my words" | Vault summary (total, mastered, reviewing, learning, due) |
+| "add word posit" | Capture a word (handled by message hook, no agent needed) |
+| "add words alpha beta" | Capture multiple words at once |
+| "hunt posit" | Same as "add word" |
+| "vocab add posit" | Same as "add word" |
 
-`vault_summary` is called for all summary commands. Format:
+`vault_summary` is called for all summary-like requests. Format:
 > You have **{total}** words: {mastered} mastered, {reviewing} reviewing, {learning} learning.
 > {due_today} due today. Last session: {last_session or 'never'}.
 
 ### Adding words from chat
 
-Two ways to add a word without the macOS app:
+The message hook recognizes these patterns directly (no agent reasoning needed):
+  > "add word ephemeral"
+  > "add this word posit"
+  > "add words liminal cogitate spawn"
+  > "hunt ephemeral"
+  > "vocab add posit"
 
-1. **Slash command** (handled by the message hook, no agent reasoning needed):
-   > `/hunt ephemeral`
+For more natural phrasing, the agent calls the `create_word` tool:
+  > "I want to study ephemeral"
+  > "capture the word liminal"
 
-2. **Natural language** (agent calls `create_word` tool):
-   > "add the word posit"
-   > "I want to study ephemeral"
-   > "capture the word liminal"
+All paths create the word page and register it in `mastery.json` (box 1, due today). If the page already exists, a `FILE_EXISTS` message is returned instead of overwriting.
 
-Both create the word page in the correct words directory and register it in `mastery.json` (box 1, due today). If the page already exists, a `FILE_EXISTS` message is returned instead of overwriting.
-
-**set coaching [word] inline** — enable inline micro-feedback on sightings.
-  Agent calls: update_word_meta({ word, coaching_mode: 'inline' })
-  Reply: "Inline coaching on for [word]. You'll get a note each time you use it."
-
-**set coaching [word] silent** — disable inline feedback (restore default).
+**set coaching [word] silent** — suppress coaching footnotes for this word.
   Agent calls: update_word_meta({ word, coaching_mode: 'silent' })
-  Reply: "Coaching mode for [word] set to silent."
+  Reply: "Coaching silenced for [word]. No more footnotes when you use it."
 
-**coaching status** — list words with inline coaching on.
-  Agent calls: scan_vault({ filter: 'all' }), filters result where coaching_mode is present
+**set coaching [word] inline** — re-enable coaching footnotes (restore default).
+  Agent calls: update_word_meta({ word, coaching_mode: 'inline' })
+  Reply: "Coaching re-enabled for [word]."
+
+**coaching status** — list words with coaching silenced.
+  Agent calls: scan_vault({ filter: 'all' }), filters result where coaching_mode === 'silent'
   (client-side; agent does the filtering, not the tool).
-  Reply (some inline): "Inline coaching: posit, ephemeral. All others: silent."
-  Reply (none): "No words have inline coaching on. Use 'set coaching [word] inline' to enable."
+  Reply (some silenced): "Silenced: posit, ephemeral. All others: coaching on (default)."
+  Reply (none silenced): "All words have coaching on (default). Use 'set coaching [word] silent' to suppress."
 
 **extract synonyms [word]** — extract and store synonyms (LLM-driven).
   Agent calls: load_word({ word }), reads content, synthesizes synonyms (max 5, lowercase),

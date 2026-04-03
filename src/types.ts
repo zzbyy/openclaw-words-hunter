@@ -62,6 +62,7 @@ export interface WordEntry {
   best_sentences: BestSentence[];
   coaching_mode?: 'silent' | 'inline';
   synonyms?: string[];
+  short_definition?: string;
 }
 
 export interface MasteryStore {
@@ -119,7 +120,7 @@ export interface ScannedWord {
   word: string;
   status: WordEntry['status'] | 'new';
   next_review: string | null;
-  coaching_mode?: 'inline';   // present only when inline; absent = not set OR set to silent
+  coaching_mode?: 'silent';   // present only when silent; absent = coaching on (default)
 }
 
 export type PluginRuntime = {

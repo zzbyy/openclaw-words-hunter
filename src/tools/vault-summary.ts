@@ -6,7 +6,7 @@ import { isDue, todayString } from '../srs/scheduler.js';
 /**
  * vault_summary — aggregate stats across the vault.
  *
- * Reads mastery.json only (fast). Used for weekly recap and on-demand /vocab command.
+ * Reads mastery.json only (fast). Used for weekly recap and on-demand vault summary.
  */
 export async function vaultSummary(
   config: VaultConfig,
