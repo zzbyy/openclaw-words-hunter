@@ -6,6 +6,7 @@ import { masteryJsonPath, readMasteryStore, writeMasteryStore, withMasteryLock }
 import { todayString } from '../srs/scheduler.js';
 import { cambridgeLookup, CambridgeBlockedError } from '../cambridge-lookup.js';
 import { fillWordPage } from '../fill-word-page.js';
+import { writeTextFileAtomic } from '../io-utils.js';
 
 // Template variable reference (matches WordPageCreator.swift):
 //   Creation-time (filled on page creation):  {{word}}, {{date}}
@@ -100,12 +101,9 @@ export async function createWord(
   const today = todayString();
   const template = await loadTemplate(config, word, today);
 
-  const tmp = path.join(wordsDir, `.wh-create-${Date.now()}.md.tmp`);
   try {
-    await fs.writeFile(tmp, template, 'utf8');
-    await fs.rename(tmp, filePath);
+    await writeTextFileAtomic(filePath, template, 'wh-create');
   } catch (e) {
-    try { await fs.unlink(tmp); } catch { /* best effort */ }
     return err({ code: 'WRITE_FAILED', message: `Could not create word page: ${String(e)}` });
   }
 

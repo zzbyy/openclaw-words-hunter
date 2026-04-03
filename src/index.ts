@@ -16,9 +16,8 @@
 import { definePluginEntry } from 'openclaw/plugin-sdk/plugin-entry';
 import { Type } from '@sinclair/typebox';
 import fs from 'node:fs/promises';
-import path from 'node:path';
 import type { VaultConfig, ToolResult } from './types.js';
-import { loadVaultConfig, nudgeQueuePath, readNudgeQueue, writeNudgeQueue, readMasteryStore, masteryJsonPath } from './vault.js';
+import { loadVaultConfig, mutateNudgeQueue, mutatePluginSidecarConfig, nudgeQueuePath, readPluginSidecarConfig, readMasteryStore, masteryJsonPath, writePluginSidecarConfig } from './vault.js';
 import { readDiscovery, writeDiscovery } from './discovery.js';
 import { importUntracked } from './importer.js';
 import { scanVault } from './tools/scan-vault.js';
@@ -30,6 +29,7 @@ import { vaultSummary } from './tools/vault-summary.js';
 import { onOutgoingMessage } from './hooks/sighting-hook.js';
 import { createWord } from './tools/create-word.js';
 import { startWatcher } from './watcher.js';
+import { isWeeklyRecapDue, resolveRecapChannel } from './notifications.js';
 
 /** Wrap any ToolResult into the AgentToolResult format OpenClaw expects. */
 function toAgentResult(result: ToolResult<unknown>): { content: { type: 'text'; text: string }[]; details: unknown } {
@@ -45,6 +45,10 @@ export default definePluginEntry({
   description: 'Master vocabulary captured via conversational AI sessions. Provides scan_vault, load_word, record_mastery, update_page, record_sighting, and vault_summary tools.',
 
   register(api) {
+    const explicitRecapChannel = typeof api.pluginConfig?.['recap_channel'] === 'string'
+      ? api.pluginConfig['recap_channel'] as string
+      : undefined;
+
     // --- Vault config bootstrap ---
     // Resolution priority:
     //   1. ~/Library/Application Support/WordsHunter/discovery.json (shared with macOS app)
@@ -265,6 +269,10 @@ export default definePluginEntry({
       if (!configResult.ok) return;
       const config = configResult.data;
 
+      if (nudgeInterval) { clearInterval(nudgeInterval); nudgeInterval = null; }
+      if (weeklyInterval) { clearInterval(weeklyInterval); weeklyInterval = null; }
+      if (stopWatcherFn) { stopWatcherFn(); stopWatcherFn = null; }
+
       // Start file watcher for 24h capture nudges
       stopWatcherFn = await startWatcher(config, api.logger, {
         sendWarning: (msg) => {
@@ -272,18 +280,18 @@ export default definePluginEntry({
         },
       });
 
+      void fireOverdueNudges(config, api);
+      void fireWeeklyRecapIfDue(config, api, explicitRecapChannel);
+
       // Nudge check every 15 minutes
       nudgeInterval = setInterval(() => {
-        void fireOverdueNudges(config, api.logger);
+        void fireOverdueNudges(config, api);
       }, 15 * 60 * 1000);
 
-      // Weekly recap: check every hour, fire Sunday 9am
+      // Weekly recap: check every 15 minutes and fire once per weekly slot.
       weeklyInterval = setInterval(() => {
-        const now = new Date();
-        if (now.getDay() === 0 && now.getHours() === 9 && now.getMinutes() < 60) {
-          void fireWeeklyRecap(config, api.logger);
-        }
-      }, 60 * 60 * 1000);
+        void fireWeeklyRecapIfDue(config, api, explicitRecapChannel);
+      }, 15 * 60 * 1000);
     });
 
     api.on('gateway_stop', async (_event, _ctx) => {
@@ -303,59 +311,92 @@ export default definePluginEntry({
  * we need to create a minimal bridge so downstream tools work correctly.
  */
 async function ensureConfigBridge(config: VaultConfig): Promise<void> {
-  const dir = path.join(config.vault_path, '.wordshunter');
-  const configPath = path.join(dir, 'config.json');
-  try {
-    await fs.access(configPath);
-    // Already exists — nothing to do
-  } catch {
-    // Create minimal config.json
-    const bridgeContent = JSON.stringify({
-      vault_path: config.vault_path,
-      words_folder: config.words_folder,
-    }, null, 2);
-    await fs.mkdir(dir, { recursive: true });
-    const tmp = path.join(dir, `.wh-config-${Date.now()}.json.tmp`);
-    await fs.writeFile(tmp, bridgeContent, 'utf8');
-    await fs.rename(tmp, configPath);
-  }
+  const existing = await readPluginSidecarConfig(config.vault_path);
+  if (existing) return;
+
+  await writePluginSidecarConfig(config.vault_path, {
+    vault_path: config.vault_path,
+    words_folder: config.words_folder,
+  });
 }
 
+type PluginRuntime = {
+  logger: { info: (message: string) => void };
+  pluginConfig?: Record<string, unknown>;
+  sendMessage?: (channelId: string, message: string) => Promise<unknown> | unknown;
+  postMessage?: (channelId: string, message: string) => Promise<unknown> | unknown;
+  channels?: {
+    send?: (channelId: string, message: string) => Promise<unknown> | unknown;
+  };
+};
 
-async function fireOverdueNudges(config: VaultConfig, logger: { info: (m: string) => void }): Promise<void> {
-  const path = await import('node:path');
-  const fs = await import('node:fs/promises');
-  const configPath = path.join(config.vault_path, '.wordshunter', 'config.json');
-  try {
-    const raw = await fs.readFile(configPath, 'utf8');
-    const obj = JSON.parse(raw);
-    if (!obj.primary_channel) return;
-  } catch {
-    return;
-  }
+async function fireOverdueNudges(config: VaultConfig, runtime: PluginRuntime): Promise<void> {
+  const sidecar = await readPluginSidecarConfig(config.vault_path);
+  if (!sidecar?.primary_channel) return;
 
   const queuePath = nudgeQueuePath(config);
-  const queue = await readNudgeQueue(queuePath);
-  if (queue.nudges.length === 0) return;
-
   const now = new Date();
-  const toFire = queue.nudges.filter(n => new Date(n.nudge_due_at) <= now);
-  if (toFire.length === 0) return;
+  const queueResult = await mutateNudgeQueue(queuePath, (queue) => {
+    const due: typeof queue.nudges = [];
+    const remaining = [];
+
+    for (const nudge of queue.nudges) {
+      if (new Date(nudge.nudge_due_at) <= now) {
+        due.push(nudge);
+      } else {
+        remaining.push(nudge);
+      }
+    }
+
+    return {
+      queue: { ...queue, nudges: remaining },
+      value: due,
+    };
+  });
+
+  if (!queueResult.ok || queueResult.data.length === 0) return;
 
   const jsonPath = masteryJsonPath(config);
   const storeResult = await readMasteryStore(jsonPath);
   const store = storeResult.ok ? storeResult.data : null;
 
-  for (const nudge of toFire) {
+  for (const nudge of queueResult.data) {
     if (store?.words[nudge.word]?.sessions && store.words[nudge.word].sessions > 0) continue;
-    logger.info(`[words-hunter nudge] "${nudge.word}" — captured 24h ago. Type /vocab to practice.`);
+    await emitPluginNotification(
+      runtime,
+      'nudge',
+      sidecar.primary_channel,
+      `"${nudge.word}" — captured 24h ago. Type /vocab to practice.`,
+    );
   }
-
-  queue.nudges = queue.nudges.filter(n => new Date(n.nudge_due_at) > now);
-  await writeNudgeQueue(queuePath, queue);
 }
 
-async function fireWeeklyRecap(config: VaultConfig, logger: { info: (m: string) => void }): Promise<void> {
+async function fireWeeklyRecapIfDue(
+  config: VaultConfig,
+  runtime: PluginRuntime,
+  explicitRecapChannel: string | undefined,
+): Promise<void> {
+  const now = new Date();
+  const claimResult = await mutatePluginSidecarConfig(config.vault_path, (current) => {
+    const next = {
+      ...current,
+      vault_path: config.vault_path,
+      words_folder: current.words_folder || config.words_folder,
+    };
+    const due = isWeeklyRecapDue(now, next.last_weekly_recap_at);
+    if (due) {
+      next.last_weekly_recap_at = now.toISOString();
+    }
+    return {
+      next,
+      value: {
+        due,
+        primary_channel: next.primary_channel,
+      },
+    };
+  });
+  if (!claimResult.ok || !claimResult.data.due) return;
+
   const jsonPath = masteryJsonPath(config);
   const storeResult = await readMasteryStore(jsonPath);
   if (!storeResult.ok) return;
@@ -363,22 +404,70 @@ async function fireWeeklyRecap(config: VaultConfig, logger: { info: (m: string) 
   const mastered = words.filter(w => w.box >= 4).length;
   const reviewing = words.filter(w => w.box === 3).length;
   const learning = words.filter(w => w.box <= 2).length;
-  logger.info(`[words-hunter weekly] ${words.length} words — ${mastered} mastered, ${reviewing} reviewing, ${learning} learning`);
+  const message = `${words.length} words — ${mastered} mastered, ${reviewing} reviewing, ${learning} learning`;
+  const channelId = resolveRecapChannel(explicitRecapChannel, claimResult.data);
+  await emitPluginNotification(runtime, 'weekly', channelId, message);
 }
 
 async function persistPrimaryChannel(config: VaultConfig, channelId: string): Promise<void> {
-  const fs = await import('node:fs/promises');
-  const path = await import('node:path');
-  const dir = path.join(config.vault_path, '.wordshunter');
-  const configPath = path.join(dir, 'config.json');
-  try {
-    const raw = await fs.readFile(configPath, 'utf8');
-    const obj = JSON.parse(raw);
-    if (!obj.primary_channel) {
-      obj.primary_channel = channelId;
-      const tmp = path.join(dir, `.wh-config-${Date.now()}.json.tmp`);
-      await fs.writeFile(tmp, JSON.stringify(obj, null, 2), 'utf8');
-      await fs.rename(tmp, configPath);
+  const result = await mutatePluginSidecarConfig(config.vault_path, (current) => ({
+    next: current.primary_channel
+      ? current
+      : {
+          ...current,
+          vault_path: config.vault_path,
+          words_folder: current.words_folder || config.words_folder,
+          primary_channel: channelId,
+        },
+    value: undefined,
+  }));
+
+  if (!result.ok) {
+    // best effort
+  }
+}
+
+async function emitPluginNotification(
+  runtime: PluginRuntime,
+  tag: 'nudge' | 'weekly',
+  channelId: string | null,
+  message: string,
+): Promise<void> {
+  const sender = resolveNotificationSender(runtime);
+
+  if (channelId && sender) {
+    try {
+      await sender(channelId, message);
+      return;
+    } catch (error) {
+      runtime.logger.info(`[words-hunter ${tag}] channel delivery failed for ${channelId}: ${String(error)}`);
     }
-  } catch { /* best effort */ }
+  }
+
+  const channelSuffix = channelId ? ` [channel:${channelId}]` : '';
+  runtime.logger.info(`[words-hunter ${tag}]${channelSuffix} ${message}`);
+}
+
+function resolveNotificationSender(
+  runtime: PluginRuntime,
+): ((channelId: string, message: string) => Promise<void>) | null {
+  if (typeof runtime.sendMessage === 'function') {
+    return async (channelId: string, message: string) => {
+      await runtime.sendMessage!(channelId, message);
+    };
+  }
+
+  if (typeof runtime.postMessage === 'function') {
+    return async (channelId: string, message: string) => {
+      await runtime.postMessage!(channelId, message);
+    };
+  }
+
+  if (typeof runtime.channels?.send === 'function') {
+    return async (channelId: string, message: string) => {
+      await runtime.channels!.send!(channelId, message);
+    };
+  }
+
+  return null;
 }

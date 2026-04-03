@@ -27,6 +27,8 @@ import path from 'node:path';
 import type { CambridgeContent, CambridgeEntry, CambridgeSense } from './cambridge-lookup.js';
 import type { VaultConfig } from './types.js';
 import { wordsFolderPath } from './vault.js';
+import { writeTextFileAtomic } from './io-utils.js';
+import { escapeRegex, wordBoundaryRegex } from './page-utils.js';
 
 /** All template variables this filler can handle (mirrors WordPageCreator.allLookupVariables). */
 const LOOKUP_VARS = [
@@ -141,15 +143,10 @@ export async function fillWordPage(
     updated = updated.replaceAll('{{see-also}}', seeAlso);
   }
 
-  // Atomic write
-  const dir = path.dirname(filePath);
-  const tmp = path.join(dir, `.wh-fill-${Date.now()}.md.tmp`);
   try {
-    await fs.writeFile(tmp, updated, 'utf8');
-    await fs.rename(tmp, filePath);
+    await writeTextFileAtomic(filePath, updated, 'wh-fill');
     return 'ok';
   } catch (e) {
-    try { await fs.unlink(tmp); } catch { /* best effort */ }
     return 'write_failed';
   }
 }
@@ -310,7 +307,7 @@ async function scanVaultForRelated(
 
   const related: string[] = [];
   for (const vw of vaultWords) {
-    const regex = new RegExp(`\\b${escapeRegex(vw)}\\b`, 'i');
+    const regex = wordBoundaryRegex(vw);
     if (regex.test(corpus)) related.push(vw);
   }
   return related;
@@ -322,8 +319,4 @@ function boldLemma(text: string, lemma: string): string {
   if (!lemma) return text;
   const escaped = escapeRegex(lemma);
   return text.replace(new RegExp(`\\b(${escaped}\\w*)`, 'gi'), '**$1**');
-}
-
-function escapeRegex(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }

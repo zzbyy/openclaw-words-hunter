@@ -103,6 +103,24 @@ describe('record_mastery', () => {
     }
   });
 
+  it('prepends repeated History entries without dropping earlier sessions', async () => {
+    const { vaultPath, config, cleanup } = await makeVault();
+    try {
+      const mdContent = readFileSync(join(FIXTURES, 'posit-no-mastery.md'), 'utf8');
+      await writeFile(join(vaultPath, 'Words', 'posit.md'), mdContent, 'utf8');
+
+      await recordMastery(config, { word: 'posit', score: 88 });
+      await recordMastery(config, { word: 'posit', score: 40 });
+
+      const updated = await readFile(join(vaultPath, 'Words', 'posit.md'), 'utf8');
+      expect(updated).toContain('box 1→2');
+      expect(updated).toContain('box 2→1');
+      expect(updated.indexOf('box 2→1')).toBeLessThan(updated.indexOf('box 1→2'));
+    } finally {
+      await cleanup();
+    }
+  });
+
   it('regenerates callout in .md page', async () => {
     const { vaultPath, config, cleanup } = await makeVault();
     try {

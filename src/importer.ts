@@ -11,32 +11,9 @@ import path from 'node:path';
 import { VaultConfig, WordEntry, MasteryStore } from './types.js';
 import { masteryJsonPath, wordsFolderPath, readMasteryStore, writeMasteryStore, withMasteryLock } from './vault.js';
 import { todayString } from './srs/scheduler.js';
+import { isWordPage } from './word-pages.js';
 
-async function readFileHead(filePath: string, maxBytes: number): Promise<string> {
-  const fh = await fs.open(filePath, 'r');
-  try {
-    const buf = Buffer.alloc(maxBytes);
-    const { bytesRead } = await fh.read(buf, 0, maxBytes, 0);
-    return buf.subarray(0, bytesRead).toString('utf8');
-  } finally {
-    await fh.close();
-  }
-}
-
-/**
- * True if the file looks like a Words Hunter word page: not a template/MOC
- * (skip `_` prefix) and contains the standard > [!info] callout.
- */
-export async function isWordPage(filePath: string): Promise<boolean> {
-  const base = path.basename(filePath);
-  if (base.startsWith('_')) return false;
-  try {
-    const head = await readFileHead(filePath, 400);
-    return head.includes('> [!info]');
-  } catch {
-    return false;
-  }
-}
+export { isWordPage } from './word-pages.js';
 
 export async function importUntracked(config: VaultConfig): Promise<{ imported: string[] }> {
   const wordsDir = wordsFolderPath(config);

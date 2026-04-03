@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 import type { VaultConfig } from '../types.js';
 import { loadVaultConfig, wordsFolderPath, masteryJsonPath, readMasteryStore, assertInVault } from '../vault.js';
 import { upsertCallout } from '../callout-renderer.js';
+import { writeWordPageAtomic } from '../page-utils.js';
 
 export async function repairVault(config: VaultConfig): Promise<{ repaired: number; skipped: number }> {
   const jsonPath = masteryJsonPath(config);
@@ -44,20 +45,10 @@ export async function repairVault(config: VaultConfig): Promise<{ repaired: numb
       skipped++;
       continue;
     }
-    const tmp = path.join(
-      path.dirname(mdPath),
-      `.wh-repair-${word}-${Date.now()}-${Math.random().toString(36).slice(2)}.tmp`,
-    );
-    try {
-      await fs.writeFile(tmp, updated, 'utf8');
-      await fs.rename(tmp, mdPath);
+    const writeResult = await writeWordPageAtomic(mdPath, updated, `wh-repair-${word}`);
+    if (writeResult.ok) {
       repaired++;
-    } catch {
-      try {
-        await fs.unlink(tmp);
-      } catch {
-        /* best effort */
-      }
+    } else {
       skipped++;
     }
   }

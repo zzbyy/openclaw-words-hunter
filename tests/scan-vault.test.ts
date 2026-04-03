@@ -88,8 +88,8 @@ describe('scan_vault', () => {
     const { vaultPath, config, cleanup } = await makeVault();
     try {
       // Write .md files
-      await writeFile(join(vaultPath, 'Words', 'posit.md'), '# posit', 'utf8');
-      await writeFile(join(vaultPath, 'Words', 'ephemeral.md'), '# ephemeral', 'utf8');
+      await writeFile(join(vaultPath, 'Words', 'posit.md'), '> [!info] posit\n> //', 'utf8');
+      await writeFile(join(vaultPath, 'Words', 'ephemeral.md'), '> [!info] ephemeral\n> //', 'utf8');
       // mastery.json has only 'posit'
       const store: MasteryStore = {
         version: 1,
@@ -104,6 +104,23 @@ describe('scan_vault', () => {
         expect(result.data).toHaveLength(1);
         expect(result.data[0].word).toBe('ephemeral');
         expect(result.data[0].status).toBe('new');
+      }
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it('filter=new skips templates and non-word markdown pages', async () => {
+    const { vaultPath, config, cleanup } = await makeVault();
+    try {
+      await writeFile(join(vaultPath, 'Words', 'real.md'), '> [!info] real\n> //', 'utf8');
+      await writeFile(join(vaultPath, 'Words', '_template.md'), '> [!info] template\n> //', 'utf8');
+      await writeFile(join(vaultPath, 'Words', 'notes.md'), '# notes only', 'utf8');
+
+      const result = await scanVault(config, 'new');
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.data.map((word) => word.word)).toEqual(['real']);
       }
     } finally {
       await cleanup();

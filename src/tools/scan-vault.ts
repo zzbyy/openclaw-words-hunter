@@ -3,6 +3,7 @@ import path from 'node:path';
 import { ToolResult, VaultConfig, ScannedWord, ScanFilter, ok, err } from '../types.js';
 import { masteryJsonPath, wordsFolderPath, readMasteryStore } from '../vault.js';
 import { isDue, todayString } from '../srs/scheduler.js';
+import { listWordPageFiles } from '../word-pages.js';
 
 /**
  * scan_vault — list words matching a filter.
@@ -25,14 +26,8 @@ export async function scanVault(
   if (filter === 'new') {
     // Words with .md pages that have no mastery entry
     const wordsDir = wordsFolderPath(config);
-    let files: string[];
-    try {
-      files = await fs.readdir(wordsDir);
-    } catch {
-      return ok([]);  // words folder empty or missing — no new words
-    }
+    const files = await listWordPageFiles(wordsDir);
     const newWords: ScannedWord[] = files
-      .filter(f => f.endsWith('.md'))
       .map(f => path.basename(f, '.md').toLowerCase())
       .filter(word => !store.words[word])
       .map(word => ({ word, status: 'new' as const, next_review: null }));

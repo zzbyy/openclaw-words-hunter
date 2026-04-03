@@ -15,7 +15,7 @@
 import type { FSWatcher } from 'chokidar';
 import path from 'node:path';
 import { VaultConfig } from './types.js';
-import { nudgeQueuePath, wordsFolderPath, readNudgeQueue, writeNudgeQueue } from './vault.js';
+import { nudgeQueuePath, wordsFolderPath, mutateNudgeQueue } from './vault.js';
 
 const MAX_RESTART_ATTEMPTS = 3;
 const BACKOFF_BASE_MS = 5_000;  // 5s, 10s, 20s
@@ -93,18 +93,18 @@ export async function startWatcher(
   };
 }
 
-async function enqueueNudge(config: VaultConfig, word: string): Promise<void> {
+export async function enqueueNudge(config: VaultConfig, word: string, now: Date = new Date()): Promise<void> {
   const queuePath = nudgeQueuePath(config);
-  const queue = await readNudgeQueue(queuePath);
-
-  const now = new Date();
   const nudgeDue = new Date(now.getTime() + 24 * 60 * 60 * 1000);
-
-  queue.nudges.push({
-    word,
-    nudge_due_at: nudgeDue.toISOString(),
-    created_at: now.toISOString(),
+  const result = await mutateNudgeQueue(queuePath, (queue) => {
+    queue.nudges.push({
+      word,
+      nudge_due_at: nudgeDue.toISOString(),
+      created_at: now.toISOString(),
+    });
+    return { queue, value: undefined };
   });
-
-  await writeNudgeQueue(queuePath, queue);
+  if (!result.ok) {
+    throw new Error(result.error.message);
+  }
 }
