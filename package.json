@@ -53,7 +53,6 @@
     "@sinclair/typebox": "^0.27.10",
     "cheerio": "^1.2.0",
     "chokidar": "^5.0.0",
-    "en-inflectors": "^1.0.12",
     "proper-lockfile": "^4.1.2"
   },
   "peerDependencies": {
