@@ -371,6 +371,46 @@ describe('sighting-hook', () => {
     }
   });
 
+  // --- Inflection-aware matching ---
+
+  it('inflected form "posited" matches vault word "posit"', async () => {
+    const { vaultPath, config, cleanup } = await makeVault(['posit']);
+    try {
+      const notes = await onOutgoingMessage(config, 'I posited that this is correct.', 'ch-1');
+      const content = await readFile(join(vaultPath, 'Words', 'posit.md'), 'utf8');
+      expect(content).toContain('I posited that this is correct.');
+      expect(notes).toHaveLength(1);
+      expect(notes[0]!.word).toBe('posit');
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it('inflected form "positing" matches vault word "posit"', async () => {
+    const { vaultPath, config, cleanup } = await makeVault(['posit']);
+    try {
+      const notes = await onOutgoingMessage(config, 'I am positing a theory.', 'ch-1');
+      const content = await readFile(join(vaultPath, 'Words', 'posit.md'), 'utf8');
+      expect(content).toContain('I am positing a theory.');
+      expect(notes).toHaveLength(1);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it('"deposit" does NOT match vault word "posit"', async () => {
+    const { vaultPath, config, cleanup } = await makeVault(['posit']);
+    try {
+      const originalContent = await readFile(join(vaultPath, 'Words', 'posit.md'), 'utf8');
+      const notes = await onOutgoingMessage(config, 'Please deposit the check.');
+      const updated = await readFile(join(vaultPath, 'Words', 'posit.md'), 'utf8');
+      expect(updated).toBe(originalContent);
+      expect(notes).toHaveLength(0);
+    } finally {
+      await cleanup();
+    }
+  });
+
   it('no channel: sightings logged, notes still returned', async () => {
     const store: MasteryStore = {
       version: 1,
