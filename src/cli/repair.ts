@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * CLI: regenerate `> [!mastery]` callouts in word .md pages from mastery.json.
+ * CLI: add `type: word-page` frontmatter to word .md pages that lack it.
  *
  * Usage: words-hunter repair [--vault <path>]
  * Default `--vault` is the current working directory (must contain `.wordshunter/config.json`).
@@ -11,8 +11,13 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { VaultConfig } from '../types.js';
 import { loadVaultConfig, wordsFolderPath, masteryJsonPath, readMasteryStore, assertInVault } from '../vault.js';
-import { upsertCallout } from '../callout-renderer.js';
 import { writeWordPageAtomic } from '../page-utils.js';
+
+const FRONTMATTER = '---\ntype: word-page\n---\n';
+
+function hasFrontmatter(content: string): boolean {
+  return /^---\n[\s\S]*?type:\s*word-page[\s\S]*?\n---/m.test(content);
+}
 
 export async function repairVault(config: VaultConfig): Promise<{ repaired: number; skipped: number }> {
   const jsonPath = masteryJsonPath(config);
@@ -26,7 +31,7 @@ export async function repairVault(config: VaultConfig): Promise<{ repaired: numb
   let repaired = 0;
   let skipped = 0;
 
-  for (const [word, entry] of Object.entries(store.words)) {
+  for (const word of Object.keys(store.words)) {
     const mdPath = path.join(wordsDir, `${word}.md`);
     const esc = assertInVault(config.vault_path, mdPath);
     if (esc) {
@@ -40,11 +45,11 @@ export async function repairVault(config: VaultConfig): Promise<{ repaired: numb
       skipped++;
       continue;
     }
-    const updated = upsertCallout(content, entry);
-    if (updated === content) {
+    if (hasFrontmatter(content)) {
       skipped++;
       continue;
     }
+    const updated = FRONTMATTER + content;
     const writeResult = await writeWordPageAtomic(mdPath, updated, `wh-repair-${word}`);
     if (writeResult.ok) {
       repaired++;
@@ -75,7 +80,7 @@ async function main(): Promise<void> {
   if (help) {
     console.log(
       'Usage: words-hunter repair [--vault <path>]\n' +
-        '  Regenerates > [!mastery] callouts from .wordshunter/mastery.json.\n' +
+        '  Adds type: word-page frontmatter to word pages that lack it.\n' +
         '  Default vault directory is the current working directory.',
     );
     process.exit(0);

@@ -24,7 +24,12 @@ export async function isWordPage(filePath: string): Promise<boolean> {
 
   try {
     const head = await readFileHead(filePath, WORD_PAGE_HEAD_BYTES);
-    return head.includes('> [!info]');
+    // v3+: YAML frontmatter with type: word-page
+    if (/^---\n[\s\S]*?type:\s*word-page[\s\S]*?\n---/m.test(head)) return true;
+    // Legacy v1/v2 fallback for pages created before frontmatter
+    return head.includes('> [!info]')
+        || head.includes('> [!mastery]')
+        || /^# .+\n\n\*\*Pronunciation:\*\*/.test(head);
   } catch {
     return false;
   }

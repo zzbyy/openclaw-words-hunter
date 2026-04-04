@@ -284,10 +284,11 @@ export default definePluginEntry({
         return; // don't run sighting scan on an add command
       }
 
+      const storageKey = (ctx.conversationId ?? ctx.channelId)?.replace(/^[a-z]+:/, '');
       const notes = await onOutgoingMessage(configResult.data, event.content, ctx.channelId);
-      if (notes.length > 0 && ctx.channelId) {
-        const existing = pendingCoachingNotes.get(ctx.channelId) ?? [];
-        pendingCoachingNotes.set(ctx.channelId, [...existing, ...notes]);
+      if (notes.length > 0 && storageKey) {
+        const existing = pendingCoachingNotes.get(storageKey) ?? [];
+        pendingCoachingNotes.set(storageKey, [...existing, ...notes]);
       }
       // Also persist primary_channel for nudge routing
       void persistPrimaryChannel(configResult.data, ctx.channelId);

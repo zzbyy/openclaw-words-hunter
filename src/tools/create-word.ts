@@ -17,7 +17,10 @@ import { writeTextFileAtomic } from '../io-utils.js';
 // Lookup runs immediately after page creation (best-effort, 8s timeout).
 // If lookup fails, template vars remain as placeholders for the agent to fill.
 // Any variable can be omitted from a custom template to opt out of that section.
-const DEFAULT_TEMPLATE = `# {{word}}
+const DEFAULT_TEMPLATE = `---
+type: word-page
+---
+# {{word}}
 
 **Pronunciation:** 🇬🇧 {{pronunciation-bre}} · 🇺🇸 {{pronunciation-ame}} · **Level:** {{cefr}}
 
