@@ -281,7 +281,7 @@ describe('sighting-hook', () => {
     }
   });
 
-  it('3+ matches: only top-2 by box returned; all sightings logged', async () => {
+  it('3 matches: all returned, sorted by box desc', async () => {
     const store: MasteryStore = {
       version: 1,
       words: {
@@ -294,11 +294,11 @@ describe('sighting-hook', () => {
     try {
       const notes = await onOutgoingMessage(config, 'Alpha beta gamma in one message.', 'ch-1');
 
-      // Top-2 by box: beta (box 3), gamma (box 2)
-      expect(notes).toHaveLength(2);
-      expect(notes.some(n => n.word === 'beta')).toBe(true);
-      expect(notes.some(n => n.word === 'gamma')).toBe(true);
-      expect(notes.some(n => n.word === 'alpha')).toBe(false);
+      // All 3 returned, sorted by box descending
+      expect(notes).toHaveLength(3);
+      expect(notes[0]!.word).toBe('beta');   // box 3
+      expect(notes[1]!.word).toBe('gamma');  // box 2
+      expect(notes[2]!.word).toBe('alpha');  // box 1
 
       // All 3 sightings logged
       for (const word of ['alpha', 'beta', 'gamma']) {

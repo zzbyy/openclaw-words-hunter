@@ -80,23 +80,18 @@ export async function onOutgoingMessage(
 
   const eligibleDirectHits = [...directHits.values()]
     .filter(({ entry: e }) => e.coaching_mode !== 'silent' && e.box < 4)
-    .sort((a, b) => b.entry.box - a.entry.box || a.entry.word.localeCompare(b.entry.word))
-    .slice(0, 2);
+    .sort((a, b) => b.entry.box - a.entry.box || a.entry.word.localeCompare(b.entry.word));
 
   for (const { entry: e } of eligibleDirectHits) {
     notes.push({ type: 'direct', word: e.word, box: e.box, shortDef: e.short_definition });
   }
 
-  const remainingSlots = 2 - notes.length;
-  if (remainingSlots > 0) {
-    const eligibleSynonymHits = [...synonymHits.values()]
-      .filter(h => h.entry.coaching_mode !== 'silent' && h.entry.box < 4)
-      .sort((a, b) => b.entry.box - a.entry.box || a.vaultWord.localeCompare(b.vaultWord))
-      .slice(0, remainingSlots);
+  const eligibleSynonymHits = [...synonymHits.values()]
+    .filter(h => h.entry.coaching_mode !== 'silent' && h.entry.box < 4)
+    .sort((a, b) => b.entry.box - a.entry.box || a.vaultWord.localeCompare(b.vaultWord));
 
-    for (const h of eligibleSynonymHits) {
-      notes.push({ type: 'synonym', word: h.vaultWord, box: h.entry.box, shortDef: h.entry.short_definition, synonym: h.synonym });
-    }
+  for (const h of eligibleSynonymHits) {
+    notes.push({ type: 'synonym', word: h.vaultWord, box: h.entry.box, shortDef: h.entry.short_definition, synonym: h.synonym });
   }
 
   return notes;

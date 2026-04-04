@@ -27,7 +27,7 @@ describe('formatCoachingFootnotes', () => {
     expect(formatCoachingFootnotes(notes)).toBe('> #vocab you wrote "suggest" — consider "posit". Box 2.');
   });
 
-  it('multiple notes joined with newline', () => {
+  it('2-3 notes: individual footnotes joined with newline', () => {
     const notes: CoachingNote[] = [
       { type: 'direct', word: 'deliberate', box: 2, shortDef: 'done on purpose' },
       { type: 'direct', word: 'ambient', box: 1 },
@@ -37,5 +37,27 @@ describe('formatCoachingFootnotes', () => {
       '> #vocab deliberate — done on purpose. Nice use, keep it up.\n' +
       '> #vocab ambient — nice use. Box 1.'
     );
+  });
+
+  it('4+ notes: collapsed into summary line', () => {
+    const notes: CoachingNote[] = [
+      { type: 'direct', word: 'deliberate', box: 2 },
+      { type: 'direct', word: 'conflate', box: 1 },
+      { type: 'direct', word: 'reputation', box: 1 },
+      { type: 'direct', word: 'suppress', box: 1 },
+    ];
+    const result = formatCoachingFootnotes(notes);
+    expect(result).toBe('> #vocab Spotted 4 vault words: deliberate, conflate, reputation, suppress. Nice density!');
+  });
+
+  it('4+ notes with synonym: collapsed with arrow notation', () => {
+    const notes: CoachingNote[] = [
+      { type: 'direct', word: 'deliberate', box: 2 },
+      { type: 'direct', word: 'conflate', box: 1 },
+      { type: 'direct', word: 'reputation', box: 1 },
+      { type: 'synonym', word: 'posit', box: 1, synonym: 'suggest' },
+    ];
+    const result = formatCoachingFootnotes(notes);
+    expect(result).toBe('> #vocab Spotted 4 vault words: deliberate, conflate, reputation, suggest → posit. Nice density!');
   });
 });
