@@ -151,8 +151,9 @@ If the user stops responding mid-session:
 
 The sighting hook fires independently on every outgoing message. When a captured word
 (or its inflected form) appears in a message the user sends, `record_sighting` is called
-automatically. Sightings are logged silently — no footnotes or interruptions during
-conversation. The sighting data is used during the daily review.
+automatically. Sightings are stored in `.wordshunter/sightings.json` — word pages are
+not modified. Sightings are logged silently with no interruptions during conversation.
+The sighting data is used during the daily review.
 
 ---
 
@@ -172,59 +173,51 @@ conversation. The sighting data is used during the daily review.
 
 ### Review flow
 
-Call `prepare_review()`. The tool returns words bucketed into four groups.
-Process them in this order:
+Call `prepare_review()`. The tool returns structured data. Walk the user through
+three steps as a natural conversation — never mention "buckets" or internal labels.
 
-#### Bucket 2: Usage review (used_today) — process first
+#### Step 1: Usage review
 
-For each word the user used in conversation today:
+Start with a compact summary:
+> "You used {N} vocab words in conversation today — {good} used well, {bad} needs work."
 
-1. Show the sighting sentence(s)
-2. Evaluate each sentence against the word's definitions (from the page content):
-   - Does the usage demonstrate correct understanding of the meaning?
-   - Is the register appropriate for the context?
-   - Are the collocations natural?
-3. Classify as:
-   - **Well used** — affirm the usage, call `record_mastery(word, score=90)` to advance SRS
-   - **Misused/awkward** — explain what went wrong, show a corrected version, give
-     an example of correct usage, call `record_mastery(word, score=40, failure_note="...")`
+**For correctly used words** — list them briefly in one line:
+> "deliberate, suppress, reputation, conflate — all used well."
 
-Format per word:
-> **deliberate** (Box 2 → 3) ✓
-> You wrote: "The deliberate attempt to suppress the report."
-> Correct use as adjective meaning "intentional." Natural collocation with "attempt."
+**For misused or awkward words** — expand with detail:
+> "**posit** — you wrote: 'I posit this sandwich is good.' That's too casual for 'posit',
+> which means to assert as a basis for argument. Better: 'I posit that linguistic
+> determinism shapes perception.'"
 
-> **posit** (Box 3 → 2) ✗
-> You wrote: "I posit this sandwich is good."
-> "Posit" is formal/academic — it means to assert as a basis for argument.
-> Better: "I posit that linguistic determinism shapes cultural perception."
+Call `record_mastery(word, score=90)` for well-used words.
+Call `record_mastery(word, score=40, failure_note="...")` for misused words.
 
-#### Bucket 1: New arrivals (new_arrivals)
+If all words were used well, keep it brief — no need to explain each one.
+Wait for the user to acknowledge before moving to the next step.
 
-For each word captured today but not yet used:
-- Show the primary definition from the page content
-- Give 2 example sentences demonstrating correct usage
-- Invite: "Try using **{word}** in conversation tomorrow."
+#### Step 2: New arrivals
 
-#### Bucket 3: Due for practice (due_not_used)
+If there are new words captured today:
+> "You also added {N} new word(s) today."
 
-Words that were due for review but didn't come up naturally. Transition into the
-existing practice session flow (Steps 2–8 from "Session flow" above):
-> These words were due but didn't come up today: **ephemeral**, **cogitate**
-> Let's practice them now. Starting with **ephemeral**...
+**1-3 new words:** introduce each with definition and 2 example sentences.
+**4+ new words:** list them all, then introduce one at a time — let the user
+control the pace ("next", "skip", "done").
 
-If the user declines ("skip", "not now", "later"), acknowledge and move on.
+Wait for the user before moving on.
 
-#### Bucket 4: Dormant
+#### Step 3: Practice
 
-Mention briefly at the end:
-> {dormant_count} other words sleeping until their next review date.
+If there are words due for practice:
+> "{N} words due for practice. Want to go through them?"
 
-### Review summary
+If yes: transition into the existing practice session flow (Steps 2–8 above).
+If no: acknowledge and wrap up.
 
-End with:
-> **Summary:** {used_count} words used, {good_count} well used, {misused_count} needs work.
-> {new_count} new words to explore. {due_count} due for practice.
+#### Wrap up
+
+End with a brief natural closing — no rigid summary template. Something like:
+> "Good session — you're actively using 13 words. See you tomorrow."
 
 ---
 
@@ -254,9 +247,9 @@ Sent automatically. Prompts the user to start a weekly review:
 ## Privacy
 
 The sighting hook reads your outgoing messages locally to check for captured words.
-Only the matched word + timestamp + sentence is stored in the `.md` file in your vault.
-Nothing is sent to external servers. The hook only fires on your outgoing messages,
-not on messages you receive.
+Matched words are stored in `.wordshunter/sightings.json` inside your vault — word
+pages are not modified. Nothing is sent to external servers. The hook only fires on
+your outgoing messages, not on messages you receive.
 
 ---
 

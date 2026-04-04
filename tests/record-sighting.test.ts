@@ -1,76 +1,73 @@
 import { describe, it, expect } from 'vitest';
 import { recordSighting } from '../src/tools/record-sighting.js';
-import type { VaultConfig } from '../src/types.js';
-import { mkdtemp, rm, mkdir, writeFile, readFile } from 'node:fs/promises';
+import type { VaultConfig, SightingsStore } from '../src/types.js';
+import { mkdtemp, rm, mkdir, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { readFileSync } from 'node:fs';
-
-const FIXTURES = join(import.meta.dirname, 'fixtures');
 
 async function makeVault(): Promise<{ vaultPath: string; config: VaultConfig; cleanup: () => Promise<void> }> {
   const vaultPath = await mkdtemp(join(tmpdir(), 'wh-test-'));
-  await mkdir(join(vaultPath, 'Words'), { recursive: true });
+  await mkdir(join(vaultPath, '.wordshunter'), { recursive: true });
   const config: VaultConfig = { vault_path: vaultPath, words_folder: 'Words' };
   return { vaultPath, config, cleanup: () => rm(vaultPath, { recursive: true, force: true }) };
 }
 
+async function readSightings(vaultPath: string): Promise<SightingsStore> {
+  const raw = await readFile(join(vaultPath, '.wordshunter', 'sightings.json'), 'utf8');
+  return JSON.parse(raw);
+}
+
 describe('record_sighting', () => {
-  it('appends sighting to existing ## Sightings section', async () => {
+  it('writes sighting to sightings.json', async () => {
     const { vaultPath, config, cleanup } = await makeVault();
     try {
-      const initial = readFileSync(join(FIXTURES, 'posit-no-mastery.md'), 'utf8');
-      await writeFile(join(vaultPath, 'Words', 'posit.md'), initial, 'utf8');
-
       await recordSighting(config, { word: 'posit', sentence: 'I posit that this works.', channel: 'Telegram' });
-      const updated = await readFile(join(vaultPath, 'Words', 'posit.md'), 'utf8');
-      expect(updated).toContain('I posit that this works.');
-      expect(updated).toContain('*(Telegram)*');
+      const store = await readSightings(vaultPath);
+      const today = new Date().toISOString().slice(0, 10);
+      expect(store.days[today]?.['posit']).toHaveLength(1);
+      expect(store.days[today]['posit'][0].sentence).toBe('I posit that this works.');
+      expect(store.days[today]['posit'][0].channel).toBe('Telegram');
     } finally {
       await cleanup();
     }
   });
 
-  it('creates ## Sightings section if absent', async () => {
+  it('appends multiple sightings under same day and word', async () => {
     const { vaultPath, config, cleanup } = await makeVault();
     try {
-      // Minimal page with no Sightings section
-      const initial = '> [!info] posit\n> //\n\n## Meanings\n\n> to put forward';
-      await writeFile(join(vaultPath, 'Words', 'posit.md'), initial, 'utf8');
-
-      await recordSighting(config, { word: 'posit', sentence: 'I posit this.' });
-      const updated = await readFile(join(vaultPath, 'Words', 'posit.md'), 'utf8');
-      expect(updated).toContain('## Sightings');
-      expect(updated).toContain('I posit this.');
+      await recordSighting(config, { word: 'posit', sentence: 'First use.' });
+      await recordSighting(config, { word: 'posit', sentence: 'Second use.' });
+      const store = await readSightings(vaultPath);
+      const today = new Date().toISOString().slice(0, 10);
+      expect(store.days[today]?.['posit']).toHaveLength(2);
+      expect(store.days[today]['posit'][0].sentence).toBe('First use.');
+      expect(store.days[today]['posit'][1].sentence).toBe('Second use.');
     } finally {
       await cleanup();
     }
   });
 
-  it('prepends repeated sightings without dropping earlier entries', async () => {
+  it('stores sightings for different words separately', async () => {
     const { vaultPath, config, cleanup } = await makeVault();
     try {
-      const initial = readFileSync(join(FIXTURES, 'posit-no-mastery.md'), 'utf8');
-      await writeFile(join(vaultPath, 'Words', 'posit.md'), initial, 'utf8');
-
-      await recordSighting(config, { word: 'posit', sentence: 'I posit this first.' });
-      await recordSighting(config, { word: 'posit', sentence: 'I posit this second.' });
-
-      const updated = await readFile(join(vaultPath, 'Words', 'posit.md'), 'utf8');
-      expect(updated).toContain('I posit this first.');
-      expect(updated).toContain('I posit this second.');
-      expect(updated.indexOf('I posit this second.')).toBeLessThan(updated.indexOf('I posit this first.'));
+      await recordSighting(config, { word: 'posit', sentence: 'I posit.' });
+      await recordSighting(config, { word: 'ephemeral', sentence: 'Ephemeral fame.' });
+      const store = await readSightings(vaultPath);
+      const today = new Date().toISOString().slice(0, 10);
+      expect(store.days[today]?.['posit']).toHaveLength(1);
+      expect(store.days[today]?.['ephemeral']).toHaveLength(1);
     } finally {
       await cleanup();
     }
   });
 
-  it('missing .md file → FILE_NOT_FOUND', async () => {
-    const { config, cleanup } = await makeVault();
+  it('sighting without channel omits channel field', async () => {
+    const { vaultPath, config, cleanup } = await makeVault();
     try {
-      const result = await recordSighting(config, { word: 'ghost', sentence: 'test' });
-      expect(result.ok).toBe(false);
-      if (!result.ok) expect(result.error.code).toBe('FILE_NOT_FOUND');
+      await recordSighting(config, { word: 'posit', sentence: 'No channel.' });
+      const store = await readSightings(vaultPath);
+      const today = new Date().toISOString().slice(0, 10);
+      expect(store.days[today]['posit'][0].channel).toBeUndefined();
     } finally {
       await cleanup();
     }

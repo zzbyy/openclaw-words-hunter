@@ -72,6 +72,15 @@ export interface MasteryStore {
 }
 
 // ============================================================
+// Sightings store (.wordshunter/sightings.json)
+// ============================================================
+
+export interface SightingsStore {
+  version: 1;
+  days: Record<string, Record<string, SightingEntry[]>>;
+}
+
+// ============================================================
 // Daily review data (returned by prepare_review tool)
 // ============================================================
 

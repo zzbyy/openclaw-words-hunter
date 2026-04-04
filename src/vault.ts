@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { ToolResult, ToolError, VaultConfig, PluginSidecarConfig, MasteryStore, NudgeQueue, ok, err } from './types.js';
+import { ToolResult, ToolError, VaultConfig, PluginSidecarConfig, MasteryStore, SightingsStore, NudgeQueue, ok, err } from './types.js';
 import { writeTextFileAtomic, withFileLock } from './io-utils.js';
 
 // ============================================================
@@ -139,6 +139,10 @@ export function masteryJsonPath(config: VaultConfig): string {
   return path.join(config.vault_path, '.wordshunter', 'mastery.json');
 }
 
+export function sightingsJsonPath(config: VaultConfig): string {
+  return path.join(config.vault_path, '.wordshunter', 'sightings.json');
+}
+
 export function nudgeQueuePath(config: VaultConfig): string {
   return path.join(config.vault_path, '.wordshunter', 'pending-nudges.json');
 }
@@ -214,6 +218,41 @@ export async function writeMasteryStore(
     return ok(undefined);
   } catch (e) {
     return err({ code: 'WRITE_FAILED', message: `Could not write mastery.json: ${String(e)}` });
+  }
+}
+
+// ============================================================
+// sightings.json I/O
+// ============================================================
+
+export async function withSightingsLock<T>(jsonPath: string, fn: () => Promise<T>): Promise<T> {
+  const dir = path.dirname(jsonPath);
+  return withFileLock(dir, '.sightings.lock', fn);
+}
+
+export async function readSightingsStore(jsonPath: string): Promise<ToolResult<SightingsStore>> {
+  try {
+    const raw = await fs.readFile(jsonPath, 'utf8');
+    const parsed = JSON.parse(raw) as SightingsStore;
+    return ok(parsed);
+  } catch (e: unknown) {
+    const code = (e as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT') {
+      return ok({ version: 1, days: {} });
+    }
+    return err({ code: 'PARSE_ERROR', message: `Could not read sightings.json: ${String(e)}` });
+  }
+}
+
+export async function writeSightingsStore(
+  jsonPath: string,
+  store: SightingsStore,
+): Promise<ToolResult<void>> {
+  try {
+    await writeTextFileAtomic(jsonPath, JSON.stringify(store, null, 2), 'wh-sightings');
+    return ok(undefined);
+  } catch (e) {
+    return err({ code: 'WRITE_FAILED', message: `Could not write sightings.json: ${String(e)}` });
   }
 }
 
