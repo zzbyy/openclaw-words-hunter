@@ -28,15 +28,11 @@ import { updatePage } from './tools/update-page.js';
 import { recordSighting } from './tools/record-sighting.js';
 import { vaultSummary } from './tools/vault-summary.js';
 import { onOutgoingMessage } from './hooks/sighting-hook.js';
-import type { CoachingNote } from './hooks/sighting-hook.js';
-import { formatCoachingFootnotes } from './coaching-format.js';
+import { prepareReview } from './tools/prepare-review.js';
 import { createWord } from './tools/create-word.js';
 import { updateWordMeta } from './tools/update-word-meta.js';
 import { startWatcher } from './watcher.js';
-import { isWeeklyRecapDue, resolveRecapChannel } from './notifications.js';
-
-/** Pending coaching footnotes keyed by channelId, consumed by message_sending hook. */
-const pendingCoachingNotes = new Map<string, CoachingNote[]>();
+import { isWeeklyRecapDue, isDailyReviewDue, resolveRecapChannel } from './notifications.js';
 
 /** Wrap any ToolResult into the AgentToolResult format OpenClaw expects. */
 function toAgentResult(result: ToolResult<unknown>): { content: { type: 'text'; text: string }[]; details: unknown } {
@@ -254,9 +250,22 @@ export default definePluginEntry({
       },
     });
 
+    api.registerTool({
+      name: 'prepare_review',
+      label: 'Prepare Daily Review',
+      description: 'Prepare bucketed vocabulary data for a daily review session. Returns words grouped into: new arrivals (captured today), used today (with sighting sentences for quality evaluation), due but not used (for practice), and dormant count.',
+      parameters: Type.Object({
+        date: Type.Optional(Type.String({ description: 'Target date YYYY-MM-DD. Defaults to today.' })),
+      }),
+      async execute(_id, params) {
+        const configResult = await configPromise;
+        if (!configResult.ok) return toAgentResult({ ok: false, error: { code: 'VAULT_NOT_FOUND', message: configResult.error.message } }) as never;
+        return toAgentResult(await prepareReview(configResult.data, (params as { date?: string }).date)) as never;
+      },
+    });
+
     // --- Message hooks ---
-    // message_received: /hunt command + sighting detection → stores coaching notes
-    // message_sending: appends coaching footnotes to agent's outgoing reply
+    // message_received: /hunt command + silent sighting detection
     api.on('message_received', async (event, ctx) => {
       const configResult = await configPromise;
       if (!configResult.ok) return;
@@ -284,36 +293,16 @@ export default definePluginEntry({
         return; // don't run sighting scan on an add command
       }
 
-      const storageKey = (ctx.conversationId ?? ctx.channelId)?.replace(/^[a-z]+:/, '');
-      const notes = await onOutgoingMessage(configResult.data, event.content, ctx.channelId);
-      if (notes.length > 0 && storageKey) {
-        const existing = pendingCoachingNotes.get(storageKey) ?? [];
-        pendingCoachingNotes.set(storageKey, [...existing, ...notes]);
-      }
+      await onOutgoingMessage(configResult.data, event.content, ctx.channelId);
       // Also persist primary_channel for nudge routing
       void persistPrimaryChannel(configResult.data, ctx.channelId);
-    });
-
-    api.on('message_sending', async (event) => {
-      if (!event.to) return;
-      const notes = pendingCoachingNotes.get(event.to);
-      if (!notes || notes.length === 0) return;
-      pendingCoachingNotes.delete(event.to);
-      try {
-        const footnotes = formatCoachingFootnotes(notes);
-        if (footnotes) {
-          api.logger.info(`[words-hunter coaching] appended ${notes.length} footnote(s) to reply`);
-          return { content: event.content + '\n\n' + footnotes };
-        }
-      } catch (err) {
-        api.logger.info(`[words-hunter coaching] format error: ${String(err)}`);
-      }
     });
 
     // --- Background crons via gateway_start ---
     // OpenClawPluginApi has no registerCron. Use gateway lifecycle hooks + setInterval.
     let nudgeInterval: ReturnType<typeof setInterval> | null = null;
     let weeklyInterval: ReturnType<typeof setInterval> | null = null;
+    let dailyReviewInterval: ReturnType<typeof setInterval> | null = null;
     let stopWatcherFn: (() => void) | null = null;
 
     api.on('gateway_start', async (_event, _ctx) => {
@@ -334,6 +323,7 @@ export default definePluginEntry({
 
       void fireOverdueNudges(config, api);
       void fireWeeklyRecapIfDue(config, api, explicitRecapChannel);
+      void fireDailyReviewIfDue(config, api, explicitRecapChannel);
 
       // Nudge check every 15 minutes
       nudgeInterval = setInterval(() => {
@@ -344,11 +334,17 @@ export default definePluginEntry({
       weeklyInterval = setInterval(() => {
         void fireWeeklyRecapIfDue(config, api, explicitRecapChannel);
       }, 15 * 60 * 1000);
+
+      // Daily review: check every 15 minutes, fire once per day at 9pm.
+      dailyReviewInterval = setInterval(() => {
+        void fireDailyReviewIfDue(config, api, explicitRecapChannel);
+      }, 15 * 60 * 1000);
     });
 
     api.on('gateway_stop', async (_event, _ctx) => {
       if (nudgeInterval) { clearInterval(nudgeInterval); nudgeInterval = null; }
       if (weeklyInterval) { clearInterval(weeklyInterval); weeklyInterval = null; }
+      if (dailyReviewInterval) { clearInterval(dailyReviewInterval); dailyReviewInterval = null; }
       if (stopWatcherFn) { stopWatcherFn(); stopWatcherFn = null; }
     });
   },
@@ -446,9 +442,45 @@ async function fireWeeklyRecapIfDue(
   const mastered = words.filter(w => w.box >= 4).length;
   const reviewing = words.filter(w => w.box === 3).length;
   const learning = words.filter(w => w.box <= 2).length;
-  const message = `${words.length} words — ${mastered} mastered, ${reviewing} reviewing, ${learning} learning`;
+  const message = `Weekly vocab review: ${words.length} words — ${mastered} mastered, ${reviewing} reviewing, ${learning} learning. Say "weekly review" for a detailed breakdown.`;
   const channelId = resolveRecapChannel(explicitRecapChannel, claimResult.data);
   await emitPluginNotification(runtime, 'weekly', channelId, message);
+}
+
+async function fireDailyReviewIfDue(
+  config: VaultConfig,
+  runtime: PluginRuntime,
+  explicitRecapChannel: string | undefined,
+): Promise<void> {
+  const now = new Date();
+  const claimResult = await mutatePluginSidecarConfig(config.vault_path, (current) => {
+    const next = {
+      ...current,
+      vault_path: config.vault_path,
+      words_folder: current.words_folder || config.words_folder,
+    };
+    const due = isDailyReviewDue(now, next.last_daily_review_at);
+    if (due) {
+      next.last_daily_review_at = now.toISOString();
+    }
+    return {
+      next,
+      value: { due, primary_channel: next.primary_channel },
+    };
+  });
+  if (!claimResult.ok || !claimResult.data.due) return;
+
+  const today = now.toISOString().slice(0, 10);
+  const jsonPath = masteryJsonPath(config);
+  const storeResult = await readMasteryStore(jsonPath);
+  if (!storeResult.ok) return;
+
+  const words = Object.values(storeResult.data.words);
+  const dueCount = words.filter(w => w.next_review <= today).length;
+
+  const channelId = resolveRecapChannel(explicitRecapChannel, claimResult.data);
+  const message = `Daily vocab review ready — ${words.length} words tracked, ${dueCount} due for review. Say "daily review" to start.`;
+  await emitPluginNotification(runtime, 'daily-review', channelId, message);
 }
 
 async function persistPrimaryChannel(config: VaultConfig, channelId: string): Promise<void> {

@@ -25,6 +25,25 @@ export function mostRecentWeeklyRecapSlot(now: Date): Date {
   return slot;
 }
 
+const DAILY_REVIEW_HOUR = 21; // 9pm
+
+export function isDailyReviewDue(now: Date, lastDailyReviewAt?: string): boolean {
+  if (now.getHours() < DAILY_REVIEW_HOUR) return false;
+
+  if (!lastDailyReviewAt) {
+    // First time — only fire if current hour matches (avoid firing on install)
+    return now.getHours() === DAILY_REVIEW_HOUR;
+  }
+
+  const last = new Date(lastDailyReviewAt);
+  if (Number.isNaN(last.getTime())) return true;
+
+  // Compare local date strings to avoid UTC/local timezone mismatch
+  const todayLocal = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  const lastLocal = `${last.getFullYear()}-${String(last.getMonth() + 1).padStart(2, '0')}-${String(last.getDate()).padStart(2, '0')}`;
+  return lastLocal < todayLocal;
+}
+
 export function isWeeklyRecapDue(now: Date, lastWeeklyRecapAt?: string): boolean {
   const slot = mostRecentWeeklyRecapSlot(now);
 

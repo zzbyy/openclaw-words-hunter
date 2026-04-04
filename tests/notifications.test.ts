@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isWeeklyRecapDue, mostRecentWeeklyRecapSlot, resolveRecapChannel } from '../src/notifications.js';
+import { isWeeklyRecapDue, isDailyReviewDue, mostRecentWeeklyRecapSlot, resolveRecapChannel } from '../src/notifications.js';
 
 describe('resolveRecapChannel', () => {
   it('prefers explicit recap_channel over primary_channel', () => {
@@ -28,5 +28,29 @@ describe('weekly recap scheduling', () => {
     expect(slot.getHours()).toBe(9);
     expect(slot.getMinutes()).toBe(0);
     expect(slot.getDate()).toBe(5);
+  });
+});
+
+describe('daily review scheduling', () => {
+  it('before 9pm → not due', () => {
+    const now = new Date('2026-04-04T20:59:00');
+    expect(isDailyReviewDue(now)).toBe(false);
+  });
+
+  it('at 9pm, first time → due', () => {
+    const now = new Date('2026-04-04T21:00:00');
+    expect(isDailyReviewDue(now)).toBe(true);
+  });
+
+  it('at 9pm, already fired today → not due', () => {
+    const now = new Date(2026, 3, 4, 21, 15, 0);
+    const lastFired = new Date(2026, 3, 4, 21, 0, 0).toISOString();
+    expect(isDailyReviewDue(now, lastFired)).toBe(false);
+  });
+
+  it('at 9pm, last fired yesterday → due', () => {
+    const now = new Date(2026, 3, 4, 21, 0, 0);
+    const lastFired = new Date(2026, 3, 3, 21, 0, 0).toISOString();
+    expect(isDailyReviewDue(now, lastFired)).toBe(true);
   });
 });

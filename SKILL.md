@@ -18,6 +18,12 @@ what's due, treat it as a trigger.
 - "vocab time"
 - "practice vocabulary"
 
+**Start a daily review** (call `prepare_review()`):
+- "daily review"
+- "how did I do today?"
+- "review my words"
+- "vocab review"
+
 **Show vault summary** (call `vault_summary`):
 - "show my words"
 - "what do I have in my word vault?"
@@ -141,36 +147,107 @@ If the user stops responding mid-session:
 
 ---
 
-## Sighting detection + coaching (passive — no user interaction)
+## Sighting detection (passive — no user interaction)
 
 The sighting hook fires independently on every outgoing message. When a captured word
-appears in a message the user sends (word-boundary match, case-insensitive), `record_sighting`
-is called automatically.
-
-Coaching is **on by default** for all words below Box 4. A brief footnote is appended
-to the agent's reply as a blockquote:
-
-Direct hit:
-> \#vocab deliberate — done on purpose. Nice use, keep it up.
-
-Synonym nudge (when the user writes a weaker synonym of a studied word):
-> \#vocab you wrote "suggest" — consider "posit" (to assert as fact). Box 2.
-
-Cap: 2 footnotes per message. Direct hits get priority. Mastered words (Box 4+) are
-sighted silently (no footnote). Words with `coaching_mode: 'silent'` are also sighted
-silently.
+(or its inflected form) appears in a message the user sends, `record_sighting` is called
+automatically. Sightings are logged silently — no footnotes or interruptions during
+conversation. The sighting data is used during the daily review.
 
 ---
 
-## Weekly recap (Sunday 9am, primary channel)
+## Daily review
 
-Sent automatically by the weekly cron. No user interaction needed.
+### Trigger commands
 
-Format:
-> Weekly vocab recap:
-> 📚 12 words total — 3 mastered, 4 reviewing, 5 learning
-> Today: 2 due
-> Last session: 2026-03-28
+**Start a daily review** (call `prepare_review()`):
+- "daily review"
+- "how did I do today?"
+- "review my words"
+- "vocab review"
+
+**Review a past day** (call `prepare_review(date="YYYY-MM-DD")`):
+- "how did I do yesterday?"
+- "review last Tuesday"
+
+### Review flow
+
+Call `prepare_review()`. The tool returns words bucketed into four groups.
+Process them in this order:
+
+#### Bucket 2: Usage review (used_today) — process first
+
+For each word the user used in conversation today:
+
+1. Show the sighting sentence(s)
+2. Evaluate each sentence against the word's definitions (from the page content):
+   - Does the usage demonstrate correct understanding of the meaning?
+   - Is the register appropriate for the context?
+   - Are the collocations natural?
+3. Classify as:
+   - **Well used** — affirm the usage, call `record_mastery(word, score=90)` to advance SRS
+   - **Misused/awkward** — explain what went wrong, show a corrected version, give
+     an example of correct usage, call `record_mastery(word, score=40, failure_note="...")`
+
+Format per word:
+> **deliberate** (Box 2 → 3) ✓
+> You wrote: "The deliberate attempt to suppress the report."
+> Correct use as adjective meaning "intentional." Natural collocation with "attempt."
+
+> **posit** (Box 3 → 2) ✗
+> You wrote: "I posit this sandwich is good."
+> "Posit" is formal/academic — it means to assert as a basis for argument.
+> Better: "I posit that linguistic determinism shapes cultural perception."
+
+#### Bucket 1: New arrivals (new_arrivals)
+
+For each word captured today but not yet used:
+- Show the primary definition from the page content
+- Give 2 example sentences demonstrating correct usage
+- Invite: "Try using **{word}** in conversation tomorrow."
+
+#### Bucket 3: Due for practice (due_not_used)
+
+Words that were due for review but didn't come up naturally. Transition into the
+existing practice session flow (Steps 2–8 from "Session flow" above):
+> These words were due but didn't come up today: **ephemeral**, **cogitate**
+> Let's practice them now. Starting with **ephemeral**...
+
+If the user declines ("skip", "not now", "later"), acknowledge and move on.
+
+#### Bucket 4: Dormant
+
+Mention briefly at the end:
+> {dormant_count} other words sleeping until their next review date.
+
+### Review summary
+
+End with:
+> **Summary:** {used_count} words used, {good_count} well used, {misused_count} needs work.
+> {new_count} new words to explore. {due_count} due for practice.
+
+---
+
+## Weekly review
+
+Extends the daily review with weekly perspective. Triggered automatically on
+Sunday 9am or manually ("weekly review", "how was my week?").
+
+Run the daily review for today, then add a weekly summary:
+> **This week:** {total_sightings} sightings across {unique_words} words.
+> SRS advances: {count} | Drops: {count} | New words: {count}
+
+---
+
+## Daily review notification (9pm, primary channel)
+
+Sent automatically. Prompts the user to start a review:
+> Daily vocab review ready — {N} words tracked, {M} due. Say "daily review" to start.
+
+## Weekly recap notification (Sunday 9am, primary channel)
+
+Sent automatically. Prompts the user to start a weekly review:
+> Weekly vocab review — {N} words, {mastered} mastered, {reviewing} reviewing, {learning} learning. Say "weekly review" for details.
 
 ---
 
@@ -212,20 +289,6 @@ For more natural phrasing, the agent calls the `create_word` tool:
   > "capture the word liminal"
 
 All paths create the word page and register it in `mastery.json` (box 1, due today). If the page already exists, a `FILE_EXISTS` message is returned instead of overwriting.
-
-**set coaching [word] silent** — suppress coaching footnotes for this word.
-  Agent calls: update_word_meta({ word, coaching_mode: 'silent' })
-  Reply: "Coaching silenced for [word]. No more footnotes when you use it."
-
-**set coaching [word] inline** — re-enable coaching footnotes (restore default).
-  Agent calls: update_word_meta({ word, coaching_mode: 'inline' })
-  Reply: "Coaching re-enabled for [word]."
-
-**coaching status** — list words with coaching silenced.
-  Agent calls: scan_vault({ filter: 'all' }), filters result where coaching_mode === 'silent'
-  (client-side; agent does the filtering, not the tool).
-  Reply (some silenced): "Silenced: posit, ephemeral. All others: coaching on (default)."
-  Reply (none silenced): "All words have coaching on (default). Use 'set coaching [word] silent' to suppress."
 
 **extract synonyms [word]** — extract and store synonyms (LLM-driven).
   Agent calls: load_word({ word }), reads content, synthesizes synonyms (max 5, lowercase),

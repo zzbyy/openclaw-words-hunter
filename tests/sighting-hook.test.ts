@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
 import { onOutgoingMessage } from '../src/hooks/sighting-hook.js';
-import type { CoachingNote } from '../src/hooks/sighting-hook.js';
 import type { VaultConfig, MasteryStore } from '../src/types.js';
 import { mkdtemp, rm, mkdir, writeFile, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -54,7 +53,7 @@ describe('sighting-hook', () => {
     }
   });
 
-  it('outgoing message containing "positive" → no sighting for "posit" (word-boundary regex)', async () => {
+  it('outgoing message containing "positive" → no sighting for "posit" (word-boundary)', async () => {
     const { vaultPath, config, cleanup } = await makeVault(['posit']);
     try {
       const originalContent = await readFile(join(vaultPath, 'Words', 'posit.md'), 'utf8');
@@ -79,11 +78,13 @@ describe('sighting-hook', () => {
     }
   });
 
-  it('message matching no words → returns empty array', async () => {
-    const { config, cleanup } = await makeVault(['posit']);
+  it('message matching no words → no sightings', async () => {
+    const { vaultPath, config, cleanup } = await makeVault(['posit']);
     try {
-      const notes = await onOutgoingMessage(config, 'This message has no captured words.');
-      expect(notes).toEqual([]);
+      const originalContent = await readFile(join(vaultPath, 'Words', 'posit.md'), 'utf8');
+      await onOutgoingMessage(config, 'This message has no captured words.');
+      const updated = await readFile(join(vaultPath, 'Words', 'posit.md'), 'utf8');
+      expect(updated).toBe(originalContent);
     } finally {
       await cleanup();
     }
@@ -128,46 +129,9 @@ describe('sighting-hook', () => {
     }
   });
 
-  // --- Coaching notes: default on ---
+  // --- Sightings recorded regardless of coaching_mode or box ---
 
-  it('coaching_mode absent (default=on): returns coaching note', async () => {
-    const { vaultPath, config, cleanup } = await makeVault(['posit']);
-    try {
-      const notes = await onOutgoingMessage(config, 'I posit this is true.', 'ch-1');
-
-      const content = await readFile(join(vaultPath, 'Words', 'posit.md'), 'utf8');
-      expect(content).toContain('I posit this is true.');
-      expect(notes).toHaveLength(1);
-      expect(notes[0]!.type).toBe('direct');
-      expect(notes[0]!.word).toBe('posit');
-      expect(notes[0]!.box).toBe(1);
-    } finally {
-      await cleanup();
-    }
-  });
-
-  it('coaching_mode=inline: returns coaching note (explicit on)', async () => {
-    const store: MasteryStore = {
-      version: 1,
-      words: {
-        posit: { word: 'posit', box: 3, status: 'reviewing', score: 80, last_practiced: '', next_review: '2026-04-01', sessions: 3, failures: [], best_sentences: [], coaching_mode: 'inline' },
-      },
-    };
-    const { vaultPath, config, cleanup } = await makeVaultWithStore(store);
-    try {
-      const notes = await onOutgoingMessage(config, 'I posit this is true.', 'ch-1');
-
-      const content = await readFile(join(vaultPath, 'Words', 'posit.md'), 'utf8');
-      expect(content).toContain('I posit this is true.');
-      expect(notes).toHaveLength(1);
-      expect(notes[0]!.word).toBe('posit');
-      expect(notes[0]!.box).toBe(3);
-    } finally {
-      await cleanup();
-    }
-  });
-
-  it('coaching_mode=silent: sighting logged but no coaching note', async () => {
+  it('coaching_mode=silent: sighting still recorded', async () => {
     const store: MasteryStore = {
       version: 1,
       words: {
@@ -176,17 +140,15 @@ describe('sighting-hook', () => {
     };
     const { vaultPath, config, cleanup } = await makeVaultWithStore(store);
     try {
-      const notes = await onOutgoingMessage(config, 'I posit this is true.', 'ch-1');
-
+      await onOutgoingMessage(config, 'I posit this is true.', 'ch-1');
       const content = await readFile(join(vaultPath, 'Words', 'posit.md'), 'utf8');
       expect(content).toContain('I posit this is true.');
-      expect(notes).toHaveLength(0);
     } finally {
       await cleanup();
     }
   });
 
-  it('Box 4+ (mastered): sighting logged but no coaching note', async () => {
+  it('Box 4+ (mastered): sighting still recorded', async () => {
     const store: MasteryStore = {
       version: 1,
       words: {
@@ -195,177 +157,20 @@ describe('sighting-hook', () => {
     };
     const { vaultPath, config, cleanup } = await makeVaultWithStore(store);
     try {
-      const notes = await onOutgoingMessage(config, 'I posit this is true.', 'ch-1');
-
+      await onOutgoingMessage(config, 'I posit this is true.', 'ch-1');
       const content = await readFile(join(vaultPath, 'Words', 'posit.md'), 'utf8');
       expect(content).toContain('I posit this is true.');
-      expect(notes).toHaveLength(0);
     } finally {
       await cleanup();
     }
   });
 
-  it('short_definition included in coaching note when present', async () => {
-    const store: MasteryStore = {
-      version: 1,
-      words: {
-        posit: { word: 'posit', box: 2, status: 'learning', score: 60, last_practiced: '', next_review: '2026-04-01', sessions: 2, failures: [], best_sentences: [], short_definition: 'to suggest as fact' },
-      },
-    };
-    const { config, cleanup } = await makeVaultWithStore(store);
+  it('no channel: sighting still recorded', async () => {
+    const { vaultPath, config, cleanup } = await makeVault(['posit']);
     try {
-      const notes = await onOutgoingMessage(config, 'I posit this is true.', 'ch-1');
-      expect(notes).toHaveLength(1);
-      expect(notes[0]!.shortDef).toBe('to suggest as fact');
-    } finally {
-      await cleanup();
-    }
-  });
-
-  // --- Synonym coaching ---
-
-  it('synonym hit: returns synonym coaching note (default on)', async () => {
-    const store: MasteryStore = {
-      version: 1,
-      words: {
-        posit: { word: 'posit', box: 2, status: 'learning', score: 60, last_practiced: '', next_review: '2026-04-01', sessions: 2, failures: [], best_sentences: [], synonyms: ['suggest'] },
-      },
-    };
-    const { config, cleanup } = await makeVaultWithStore(store);
-    try {
-      const notes = await onOutgoingMessage(config, 'I suggest we go ahead.', 'ch-1');
-      expect(notes).toHaveLength(1);
-      expect(notes[0]!.type).toBe('synonym');
-      expect(notes[0]!.word).toBe('posit');
-      expect(notes[0]!.synonym).toBe('suggest');
-    } finally {
-      await cleanup();
-    }
-  });
-
-  it('synonym hit: no note when vault word has coaching_mode=silent', async () => {
-    const store: MasteryStore = {
-      version: 1,
-      words: {
-        posit: { word: 'posit', box: 2, status: 'learning', score: 60, last_practiced: '', next_review: '2026-04-01', sessions: 2, failures: [], best_sentences: [], coaching_mode: 'silent', synonyms: ['suggest'] },
-      },
-    };
-    const { config, cleanup } = await makeVaultWithStore(store);
-    try {
-      const notes = await onOutgoingMessage(config, 'I suggest we go ahead.', 'ch-1');
-      expect(notes).toHaveLength(0);
-    } finally {
-      await cleanup();
-    }
-  });
-
-  it('direct hit suppresses synonym hit for same vault word', async () => {
-    const store: MasteryStore = {
-      version: 1,
-      words: {
-        posit: { word: 'posit', box: 2, status: 'learning', score: 60, last_practiced: '', next_review: '2026-04-01', sessions: 2, failures: [], best_sentences: [], synonyms: ['suggest'] },
-      },
-    };
-    const { vaultPath, config, cleanup } = await makeVaultWithStore(store);
-    try {
-      const notes = await onOutgoingMessage(config, 'I posit and suggest we go ahead.', 'ch-1');
-
-      expect(notes).toHaveLength(1);
-      expect(notes[0]!.type).toBe('direct');
-      expect(notes[0]!.word).toBe('posit');
-
+      await onOutgoingMessage(config, 'I posit this is true.');
       const content = await readFile(join(vaultPath, 'Words', 'posit.md'), 'utf8');
-      expect(content).toContain('I posit and suggest we go ahead.');
-    } finally {
-      await cleanup();
-    }
-  });
-
-  it('3 matches: all returned, sorted by box desc', async () => {
-    const store: MasteryStore = {
-      version: 1,
-      words: {
-        alpha: { word: 'alpha', box: 1, status: 'learning', score: 50, last_practiced: '', next_review: '2026-04-01', sessions: 1, failures: [], best_sentences: [] },
-        beta:  { word: 'beta',  box: 3, status: 'reviewing', score: 70, last_practiced: '', next_review: '2026-04-01', sessions: 2, failures: [], best_sentences: [] },
-        gamma: { word: 'gamma', box: 2, status: 'learning', score: 60, last_practiced: '', next_review: '2026-04-01', sessions: 1, failures: [], best_sentences: [] },
-      },
-    };
-    const { vaultPath, config, cleanup } = await makeVaultWithStore(store);
-    try {
-      const notes = await onOutgoingMessage(config, 'Alpha beta gamma in one message.', 'ch-1');
-
-      // All 3 returned, sorted by box descending
-      expect(notes).toHaveLength(3);
-      expect(notes[0]!.word).toBe('beta');   // box 3
-      expect(notes[1]!.word).toBe('gamma');  // box 2
-      expect(notes[2]!.word).toBe('alpha');  // box 1
-
-      // All 3 sightings logged
-      for (const word of ['alpha', 'beta', 'gamma']) {
-        const content = await readFile(join(vaultPath, 'Words', `${word}.md`), 'utf8');
-        expect(content).toContain('Alpha beta gamma');
-      }
-    } finally {
-      await cleanup();
-    }
-  });
-
-  it('synonym with >3 vault word mappings: excluded from cache', async () => {
-    const store: MasteryStore = {
-      version: 1,
-      words: {
-        posit:    { word: 'posit',    box: 2, status: 'learning', score: 50, last_practiced: '', next_review: '2026-04-01', sessions: 1, failures: [], best_sentences: [], synonyms: ['suggest'] },
-        assert:   { word: 'assert',   box: 2, status: 'learning', score: 50, last_practiced: '', next_review: '2026-04-01', sessions: 1, failures: [], best_sentences: [], synonyms: ['suggest'] },
-        propose:  { word: 'propose',  box: 2, status: 'learning', score: 50, last_practiced: '', next_review: '2026-04-01', sessions: 1, failures: [], best_sentences: [], synonyms: ['suggest'] },
-        maintain: { word: 'maintain', box: 2, status: 'learning', score: 50, last_practiced: '', next_review: '2026-04-01', sessions: 1, failures: [], best_sentences: [], synonyms: ['suggest'] },
-      },
-    };
-    const { config, cleanup } = await makeVaultWithStore(store);
-    try {
-      const notes = await onOutgoingMessage(config, 'I suggest we reconsider.', 'ch-1');
-      expect(notes).toHaveLength(0);
-    } finally {
-      await cleanup();
-    }
-  });
-
-  it('synonym that is itself a vault word: direct hit, not synonym nudge', async () => {
-    const store: MasteryStore = {
-      version: 1,
-      words: {
-        posit:  { word: 'posit',  box: 2, status: 'learning', score: 50, last_practiced: '', next_review: '2026-04-01', sessions: 1, failures: [], best_sentences: [], synonyms: ['assert'] },
-        assert: { word: 'assert', box: 3, status: 'reviewing', score: 70, last_practiced: '', next_review: '2026-04-01', sessions: 2, failures: [], best_sentences: [] },
-      },
-    };
-    const { vaultPath, config, cleanup } = await makeVaultWithStore(store);
-    try {
-      const notes = await onOutgoingMessage(config, 'I assert this is true.', 'ch-1');
-
-      expect(notes).toHaveLength(1);
-      expect(notes[0]!.type).toBe('direct');
-      expect(notes[0]!.word).toBe('assert');
-
-      const content = await readFile(join(vaultPath, 'Words', 'assert.md'), 'utf8');
-      expect(content).toContain('I assert this is true.');
-    } finally {
-      await cleanup();
-    }
-  });
-
-  it('two synonyms for same vault word: only one synonym note', async () => {
-    const store: MasteryStore = {
-      version: 1,
-      words: {
-        posit: { word: 'posit', box: 2, status: 'learning', score: 60, last_practiced: '', next_review: '2026-04-01', sessions: 2, failures: [], best_sentences: [], synonyms: ['suggest', 'propose'] },
-      },
-    };
-    const { config, cleanup } = await makeVaultWithStore(store);
-    try {
-      const notes = await onOutgoingMessage(config, 'I suggest and propose we move forward.', 'ch-1');
-
-      expect(notes).toHaveLength(1);
-      expect(notes[0]!.type).toBe('synonym');
-      expect(notes[0]!.word).toBe('posit');
+      expect(content).toContain('I posit this is true.');
     } finally {
       await cleanup();
     }
@@ -376,11 +181,9 @@ describe('sighting-hook', () => {
   it('inflected form "posited" matches vault word "posit"', async () => {
     const { vaultPath, config, cleanup } = await makeVault(['posit']);
     try {
-      const notes = await onOutgoingMessage(config, 'I posited that this is correct.', 'ch-1');
+      await onOutgoingMessage(config, 'I posited that this is correct.', 'ch-1');
       const content = await readFile(join(vaultPath, 'Words', 'posit.md'), 'utf8');
       expect(content).toContain('I posited that this is correct.');
-      expect(notes).toHaveLength(1);
-      expect(notes[0]!.word).toBe('posit');
     } finally {
       await cleanup();
     }
@@ -389,10 +192,9 @@ describe('sighting-hook', () => {
   it('inflected form "positing" matches vault word "posit"', async () => {
     const { vaultPath, config, cleanup } = await makeVault(['posit']);
     try {
-      const notes = await onOutgoingMessage(config, 'I am positing a theory.', 'ch-1');
+      await onOutgoingMessage(config, 'I am positing a theory.', 'ch-1');
       const content = await readFile(join(vaultPath, 'Words', 'posit.md'), 'utf8');
       expect(content).toContain('I am positing a theory.');
-      expect(notes).toHaveLength(1);
     } finally {
       await cleanup();
     }
@@ -402,29 +204,30 @@ describe('sighting-hook', () => {
     const { vaultPath, config, cleanup } = await makeVault(['posit']);
     try {
       const originalContent = await readFile(join(vaultPath, 'Words', 'posit.md'), 'utf8');
-      const notes = await onOutgoingMessage(config, 'Please deposit the check.');
+      await onOutgoingMessage(config, 'Please deposit the check.');
       const updated = await readFile(join(vaultPath, 'Words', 'posit.md'), 'utf8');
       expect(updated).toBe(originalContent);
-      expect(notes).toHaveLength(0);
     } finally {
       await cleanup();
     }
   });
 
-  it('no channel: sightings logged, notes still returned', async () => {
+  it('3 words detected: all sightings recorded', async () => {
     const store: MasteryStore = {
       version: 1,
       words: {
-        posit: { word: 'posit', box: 3, status: 'reviewing', score: 80, last_practiced: '', next_review: '2026-04-01', sessions: 3, failures: [], best_sentences: [] },
+        alpha: { word: 'alpha', box: 1, status: 'learning', score: 50, last_practiced: '', next_review: '2026-04-01', sessions: 1, failures: [], best_sentences: [] },
+        beta:  { word: 'beta',  box: 3, status: 'reviewing', score: 70, last_practiced: '', next_review: '2026-04-01', sessions: 2, failures: [], best_sentences: [] },
+        gamma: { word: 'gamma', box: 2, status: 'learning', score: 60, last_practiced: '', next_review: '2026-04-01', sessions: 1, failures: [], best_sentences: [] },
       },
     };
     const { vaultPath, config, cleanup } = await makeVaultWithStore(store);
     try {
-      const notes = await onOutgoingMessage(config, 'I posit this is true.');
-
-      const content = await readFile(join(vaultPath, 'Words', 'posit.md'), 'utf8');
-      expect(content).toContain('I posit this is true.');
-      expect(notes).toHaveLength(1);
+      await onOutgoingMessage(config, 'Alpha beta gamma in one message.', 'ch-1');
+      for (const word of ['alpha', 'beta', 'gamma']) {
+        const content = await readFile(join(vaultPath, 'Words', `${word}.md`), 'utf8');
+        expect(content).toContain('Alpha beta gamma');
+      }
     } finally {
       await cleanup();
     }
