@@ -12,11 +12,12 @@ export interface RecordSightingInput {
   channel?: string;
 }
 
-const PRUNE_DAYS = 30;
+const PRUNE_DAYS = 90;
 
 /**
  * Record a batch of sightings from a single message as one event.
- * Auto-prunes days older than 30 days.
+ * Deduplicates: if the exact same words map already exists today, increments count.
+ * Auto-prunes days older than 90 days.
  */
 export async function recordSightingBatch(
   config: VaultConfig,
@@ -32,7 +33,7 @@ export async function recordSightingBatch(
 
     const now = new Date();
     const today = now.toISOString().slice(0, 10);
-    const timestamp = now.toISOString().slice(0, 16); // "2026-04-04T21:15"
+    const timestamp = now.toISOString().slice(0, 16);
 
     const words: Record<string, string> = {};
     for (const hit of input.hits) {
@@ -40,9 +41,17 @@ export async function recordSightingBatch(
     }
 
     if (!store.days[today]) store.days[today] = [];
-    store.days[today].push({ timestamp, channel: input.channel, words });
 
-    // Auto-prune days older than 30 days
+    // Dedup: check if an existing event today has the same words map
+    const existing = store.days[today].find(e => wordsMapEqual(e.words, words));
+    if (existing) {
+      existing.count = (existing.count ?? 1) + 1;
+      existing.timestamp = timestamp; // update to latest occurrence
+    } else {
+      store.days[today].push({ timestamp, channel: input.channel, words });
+    }
+
+    // Auto-prune days older than 90 days
     const cutoff = new Date(now.getTime() - PRUNE_DAYS * 86_400_000).toISOString().slice(0, 10);
     for (const day of Object.keys(store.days)) {
       if (day < cutoff) delete store.days[day];
@@ -50,6 +59,13 @@ export async function recordSightingBatch(
 
     return writeSightingsStore(jsonPath, store);
   });
+}
+
+function wordsMapEqual(a: Record<string, string>, b: Record<string, string>): boolean {
+  const keysA = Object.keys(a);
+  const keysB = Object.keys(b);
+  if (keysA.length !== keysB.length) return false;
+  return keysA.every(k => a[k] === b[k]);
 }
 
 /** Single-word wrapper for backward compatibility (tool registration). */

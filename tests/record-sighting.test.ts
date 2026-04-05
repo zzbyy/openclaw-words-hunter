@@ -67,7 +67,37 @@ describe('recordSightingBatch', () => {
     }
   });
 
-  it('auto-prunes days older than 30 days', async () => {
+  it('deduplicates identical messages and increments count', async () => {
+    const { vaultPath, config, cleanup } = await makeVault();
+    try {
+      const hits = [{ word: 'deliberate', sentence: 'A deliberate act.' }, { word: 'suppress', sentence: 'A deliberate act.' }];
+      await recordSightingBatch(config, { hits, channel: 'telegram' });
+      await recordSightingBatch(config, { hits, channel: 'telegram' });
+      await recordSightingBatch(config, { hits, channel: 'telegram' });
+      const store = await readStore(vaultPath);
+      // One event, not three
+      expect(store.days[TODAY]).toHaveLength(1);
+      expect(store.days[TODAY][0].count).toBe(3);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it('different sentences are NOT deduped', async () => {
+    const { vaultPath, config, cleanup } = await makeVault();
+    try {
+      await recordSightingBatch(config, { hits: [{ word: 'posit', sentence: 'First use.' }] });
+      await recordSightingBatch(config, { hits: [{ word: 'posit', sentence: 'Second use.' }] });
+      const store = await readStore(vaultPath);
+      expect(store.days[TODAY]).toHaveLength(2);
+      expect(store.days[TODAY][0].count).toBeUndefined();
+      expect(store.days[TODAY][1].count).toBeUndefined();
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it('auto-prunes days older than 90 days', async () => {
     const { vaultPath, config, cleanup } = await makeVault();
     try {
       // Write a sighting first so the file exists

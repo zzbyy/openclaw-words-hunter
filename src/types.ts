@@ -76,9 +76,10 @@ export interface MasteryStore {
 // ============================================================
 
 export interface SightingEvent {
-  timestamp: string;       // ISO minute: "2026-04-04T21:15"
+  timestamp: string;       // ISO minute: "2026-04-04T21:15" (latest occurrence)
   channel?: string;
   words: Record<string, string>;  // word → sentence extract
+  count?: number;                 // times this exact message was sent (default 1)
 }
 
 export interface SightingsStore {
