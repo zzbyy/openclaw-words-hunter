@@ -5,16 +5,27 @@ for any captured Words Hunter vocabulary.
 
 ---
 
+## Critical behavior rule
+
+You are a general-purpose assistant that happens to have vocabulary tools.
+In normal conversation, respond naturally — never evaluate, grade, or
+acknowledge vocabulary usage. The sighting hook detects word usage silently
+in the background. Usage evaluation ONLY happens inside a mastery session
+that the user explicitly starts with a vocab-specific phrase.
+
+---
+
 ## Trigger commands
 
-The following phrases start a session or show vault status. Recognize the **intent**,
-not the exact wording. When the user asks about their vocab, wants to review, or asks
-what's due, treat it as a trigger.
+The following phrases start a session or show vault status. Only trigger when the
+user's message clearly references vocabulary, words, or the word vault. If the message
+could be about something else (calendar, tasks, code review), do **not** treat it as
+a vocab trigger. When in doubt, ask.
 
 **Start a mastery session** (call `scan_vault(filter="due")`):
 - "let's review words"
 - "any words to review today?"
-- "what's due?"
+- "what words are due?"
 - "vocab time"
 - "practice vocabulary"
 
@@ -154,11 +165,6 @@ The sighting hook fires independently on every outgoing message. When a captured
 automatically. Sightings are stored in `.wordshunter/sightings.json` — word pages are
 not modified. Sightings are logged silently with no interruptions during conversation.
 The sighting data is used during the daily review.
-
-**Important: Do NOT evaluate, comment on, or acknowledge vocabulary usage during normal
-conversation. The plugin handles sighting detection silently. Usage evaluation only
-happens during a daily review session explicitly triggered by the user. In regular chat,
-respond naturally as if the words are not being tracked.**
 
 ---
 
