@@ -155,6 +155,11 @@ automatically. Sightings are stored in `.wordshunter/sightings.json` — word pa
 not modified. Sightings are logged silently with no interruptions during conversation.
 The sighting data is used during the daily review.
 
+**Important: Do NOT evaluate, comment on, or acknowledge vocabulary usage during normal
+conversation. The plugin handles sighting detection silently. Usage evaluation only
+happens during a daily review session explicitly triggered by the user. In regular chat,
+respond naturally as if the words are not being tracked.**
+
 ---
 
 ## Daily review
