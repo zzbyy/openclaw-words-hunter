@@ -46,22 +46,22 @@ async function readSightings(vaultPath: string): Promise<SightingsStore> {
     const raw = await readFile(join(vaultPath, '.wordshunter', 'sightings.json'), 'utf8');
     return JSON.parse(raw);
   } catch {
-    return { version: 1, days: {} };
+    return { version: 2, days: {} };
   }
 }
 
-function getSightingsForWord(store: SightingsStore, word: string): string[] {
-  const daySightings = store.days[TODAY] ?? {};
-  return (daySightings[word] ?? []).map(s => s.sentence);
+function getWordsFromEvents(store: SightingsStore, word: string): string[] {
+  const events = store.days[TODAY] ?? [];
+  return events.flatMap(e => e.words[word] ? [e.words[word]] : []);
 }
 
 describe('sighting-hook', () => {
-  it('outgoing message containing "posit" → sighting recorded in sightings.json', async () => {
+  it('"posit" → sighting recorded in sightings.json', async () => {
     const { vaultPath, config, cleanup } = await makeVault(['posit']);
     try {
       await onOutgoingMessage(config, 'I posit that this is correct.', 'Telegram');
       const store = await readSightings(vaultPath);
-      expect(getSightingsForWord(store, 'posit')).toContain('I posit that this is correct.');
+      expect(getWordsFromEvents(store, 'posit')).toContain('I posit that this is correct.');
     } finally {
       await cleanup();
     }
@@ -72,19 +72,29 @@ describe('sighting-hook', () => {
     try {
       await onOutgoingMessage(config, 'That is a positive outcome!');
       const store = await readSightings(vaultPath);
-      expect(getSightingsForWord(store, 'posit')).toHaveLength(0);
+      expect(getWordsFromEvents(store, 'posit')).toHaveLength(0);
     } finally {
       await cleanup();
     }
   });
 
-  it('message with both "posit" and "ephemeral" → two sightings', async () => {
-    const { vaultPath, config, cleanup } = await makeVault(['posit', 'ephemeral']);
+  it('message with 3 words → ONE event with 3 words in words map', async () => {
+    const store: MasteryStore = {
+      version: 1,
+      words: {
+        alpha: { word: 'alpha', box: 1, status: 'learning', score: 50, last_practiced: '', next_review: '2026-04-01', sessions: 1, failures: [], best_sentences: [] },
+        beta:  { word: 'beta',  box: 3, status: 'reviewing', score: 70, last_practiced: '', next_review: '2026-04-01', sessions: 2, failures: [], best_sentences: [] },
+        gamma: { word: 'gamma', box: 2, status: 'learning', score: 60, last_practiced: '', next_review: '2026-04-01', sessions: 1, failures: [], best_sentences: [] },
+      },
+    };
+    const { vaultPath, config, cleanup } = await makeVaultWithStore(store);
     try {
-      await onOutgoingMessage(config, 'I posit that ephemeral fame is overrated.', 'WeChat');
-      const store = await readSightings(vaultPath);
-      expect(getSightingsForWord(store, 'posit')).toHaveLength(1);
-      expect(getSightingsForWord(store, 'ephemeral')).toHaveLength(1);
+      await onOutgoingMessage(config, 'Alpha beta gamma in one message.', 'ch-1');
+      const sightings = await readSightings(vaultPath);
+      // One event, not three
+      expect(sightings.days[TODAY]).toHaveLength(1);
+      const event = sightings.days[TODAY][0];
+      expect(Object.keys(event.words).sort()).toEqual(['alpha', 'beta', 'gamma']);
     } finally {
       await cleanup();
     }
@@ -115,7 +125,7 @@ describe('sighting-hook', () => {
 
       await onOutgoingMessage(config, 'The liminal hallway felt surreal.');
       const store = await readSightings(vaultPath);
-      expect(getSightingsForWord(store, 'liminal')).toHaveLength(1);
+      expect(getWordsFromEvents(store, 'liminal')).toHaveLength(1);
     } finally {
       await cleanup();
     }
@@ -132,7 +142,7 @@ describe('sighting-hook', () => {
 
       await onOutgoingMessage(config, longMessage);
       const store = await readSightings(vaultPath);
-      const sentences = getSightingsForWord(store, 'posit');
+      const sentences = getWordsFromEvents(store, 'posit');
       expect(sentences[0]).toContain('I posit that the final sentence should be the one we keep.');
       expect(sentences[0]).not.toContain('This introduction is intentionally long');
     } finally {
@@ -151,7 +161,7 @@ describe('sighting-hook', () => {
     try {
       await onOutgoingMessage(config, 'I posit this is true.', 'ch-1');
       const sightings = await readSightings(vaultPath);
-      expect(getSightingsForWord(sightings, 'posit')).toHaveLength(1);
+      expect(getWordsFromEvents(sightings, 'posit')).toHaveLength(1);
     } finally {
       await cleanup();
     }
@@ -168,7 +178,7 @@ describe('sighting-hook', () => {
     try {
       await onOutgoingMessage(config, 'I posit this is true.', 'ch-1');
       const sightings = await readSightings(vaultPath);
-      expect(getSightingsForWord(sightings, 'posit')).toHaveLength(1);
+      expect(getWordsFromEvents(sightings, 'posit')).toHaveLength(1);
     } finally {
       await cleanup();
     }
@@ -179,7 +189,7 @@ describe('sighting-hook', () => {
     try {
       await onOutgoingMessage(config, 'I posit this is true.');
       const sightings = await readSightings(vaultPath);
-      expect(getSightingsForWord(sightings, 'posit')).toHaveLength(1);
+      expect(getWordsFromEvents(sightings, 'posit')).toHaveLength(1);
     } finally {
       await cleanup();
     }
@@ -192,18 +202,7 @@ describe('sighting-hook', () => {
     try {
       await onOutgoingMessage(config, 'I posited that this is correct.', 'ch-1');
       const sightings = await readSightings(vaultPath);
-      expect(getSightingsForWord(sightings, 'posit')).toHaveLength(1);
-    } finally {
-      await cleanup();
-    }
-  });
-
-  it('inflected "positing" → sighting for "posit"', async () => {
-    const { vaultPath, config, cleanup } = await makeVault(['posit']);
-    try {
-      await onOutgoingMessage(config, 'I am positing a theory.', 'ch-1');
-      const sightings = await readSightings(vaultPath);
-      expect(getSightingsForWord(sightings, 'posit')).toHaveLength(1);
+      expect(getWordsFromEvents(sightings, 'posit')).toHaveLength(1);
     } finally {
       await cleanup();
     }
@@ -214,28 +213,19 @@ describe('sighting-hook', () => {
     try {
       await onOutgoingMessage(config, 'Please deposit the check.');
       const sightings = await readSightings(vaultPath);
-      expect(getSightingsForWord(sightings, 'posit')).toHaveLength(0);
+      expect(getWordsFromEvents(sightings, 'posit')).toHaveLength(0);
     } finally {
       await cleanup();
     }
   });
 
-  it('3 words detected: all sightings recorded', async () => {
-    const store: MasteryStore = {
-      version: 1,
-      words: {
-        alpha: { word: 'alpha', box: 1, status: 'learning', score: 50, last_practiced: '', next_review: '2026-04-01', sessions: 1, failures: [], best_sentences: [] },
-        beta:  { word: 'beta',  box: 3, status: 'reviewing', score: 70, last_practiced: '', next_review: '2026-04-01', sessions: 2, failures: [], best_sentences: [] },
-        gamma: { word: 'gamma', box: 2, status: 'learning', score: 60, last_practiced: '', next_review: '2026-04-01', sessions: 1, failures: [], best_sentences: [] },
-      },
-    };
-    const { vaultPath, config, cleanup } = await makeVaultWithStore(store);
+  it('timestamp has minute precision', async () => {
+    const { vaultPath, config, cleanup } = await makeVault(['posit']);
     try {
-      await onOutgoingMessage(config, 'Alpha beta gamma in one message.', 'ch-1');
+      await onOutgoingMessage(config, 'I posit this.', 'ch-1');
       const sightings = await readSightings(vaultPath);
-      for (const word of ['alpha', 'beta', 'gamma']) {
-        expect(getSightingsForWord(sightings, word)).toHaveLength(1);
-      }
+      const event = sightings.days[TODAY][0];
+      expect(event.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/);
     } finally {
       await cleanup();
     }

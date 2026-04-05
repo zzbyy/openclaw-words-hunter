@@ -34,12 +34,19 @@ export async function prepareReview(
   const storeResult = await readMasteryStore(jsonPath);
   if (!storeResult.ok) return { ok: false, error: storeResult.error };
 
-  // Read sightings store
+  // Read sightings store and fan out events to per-word arrays
   const sightingsPath = sightingsJsonPath(config);
   const sightingsResult = await readSightingsStore(sightingsPath);
-  const daySightings: Record<string, SightingEntry[]> = sightingsResult.ok
-    ? (sightingsResult.data.days[targetDate] ?? {})
-    : {};
+  const daySightings: Record<string, SightingEntry[]> = {};
+  if (sightingsResult.ok) {
+    const dayEvents = sightingsResult.data.days[targetDate] ?? [];
+    for (const event of dayEvents) {
+      for (const [word, sentence] of Object.entries(event.words)) {
+        if (!daySightings[word]) daySightings[word] = [];
+        daySightings[word].push({ timestamp: event.timestamp, sentence, channel: event.channel });
+      }
+    }
+  }
 
   const store = storeResult.data;
   const wordsDir = wordsFolderPath(config);

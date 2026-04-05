@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import type { VaultConfig, WordEntry } from '../types.js';
 import { readMasteryStore, masteryJsonPath } from '../vault.js';
-import { recordSighting } from '../tools/record-sighting.js';
+import { recordSightingBatch } from '../tools/record-sighting.js';
 import { escapeRegex } from '../page-utils.js';
 import { tokenize, generateForms, MatchTrie } from '../matching/index.js';
 
@@ -46,13 +46,14 @@ export async function onOutgoingMessage(
     }
   }
 
-  // Log sightings — all direct hits, regardless of coaching mode or box
-  await Promise.allSettled(
-    [...directHits.values()].map(({ entry, matchedForm }) => {
-      const sentence = extractSentence(messageText, matchedForm) ?? messageText.trim();
-      return recordSighting(config, { word: entry.word, sentence, channel: channelId });
-    })
-  );
+  // Log sightings — all direct hits in one batch write
+  const hits = [...directHits.values()].map(({ entry, matchedForm }) => ({
+    word: entry.word,
+    sentence: extractSentence(messageText, matchedForm) ?? messageText.trim(),
+  }));
+  if (hits.length > 0) {
+    await recordSightingBatch(config, { hits, channel: channelId });
+  }
 }
 
 /**

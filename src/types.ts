@@ -75,17 +75,30 @@ export interface MasteryStore {
 // Sightings store (.wordshunter/sightings.json)
 // ============================================================
 
+export interface SightingEvent {
+  timestamp: string;       // ISO minute: "2026-04-04T21:15"
+  channel?: string;
+  words: Record<string, string>;  // word → sentence extract
+}
+
 export interface SightingsStore {
+  version: 2;
+  days: Record<string, SightingEvent[]>;
+}
+
+/** v1 schema for migration (read-only) */
+export interface SightingsStoreV1 {
   version: 1;
-  days: Record<string, Record<string, SightingEntry[]>>;
+  days: Record<string, Record<string, Array<{ date: string; sentence: string; channel?: string }>>>;
 }
 
 // ============================================================
 // Daily review data (returned by prepare_review tool)
 // ============================================================
 
+/** Flattened per-word sighting for prepare_review output */
 export interface SightingEntry {
-  date: string;       // YYYY-MM-DD
+  timestamp: string;  // ISO minute
   sentence: string;
   channel?: string;
 }

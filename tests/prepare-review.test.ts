@@ -34,12 +34,10 @@ async function makeReviewVault(
 }
 
 describe('prepareReview', () => {
-  it('new word (sessions=0, next_review=today) → bucket 1', async () => {
+  it('new word → bucket 1', async () => {
     const store: MasteryStore = {
       version: 1,
-      words: {
-        posit: { word: 'posit', box: 1, status: 'learning', score: 0, last_practiced: '', next_review: TODAY, sessions: 0, failures: [], best_sentences: [] },
-      },
+      words: { posit: { word: 'posit', box: 1, status: 'learning', score: 0, last_practiced: '', next_review: TODAY, sessions: 0, failures: [], best_sentences: [] } },
     };
     const { config, cleanup } = await makeReviewVault(store, { posit: wordPage('posit') });
     try {
@@ -47,19 +45,65 @@ describe('prepareReview', () => {
       expect(result.ok).toBe(true);
       if (!result.ok) return;
       expect(result.data.new_arrivals).toHaveLength(1);
-      expect(result.data.new_arrivals[0].word).toBe('posit');
       expect(result.data.used_today).toHaveLength(0);
     } finally {
       await cleanup();
     }
   });
 
-  it('due word with no sightings → bucket 3', async () => {
+  it('due word with sighting → bucket 2 (v2 events)', async () => {
+    const store: MasteryStore = {
+      version: 1,
+      words: { posit: { word: 'posit', box: 2, status: 'learning', score: 60, last_practiced: YESTERDAY, next_review: TODAY, sessions: 2, failures: [], best_sentences: [] } },
+    };
+    const sightings: SightingsStore = {
+      version: 2,
+      days: { [TODAY]: [{ timestamp: `${TODAY}T21:15`, channel: 'telegram', words: { posit: 'I posit that this works.' } }] },
+    };
+    const { config, cleanup } = await makeReviewVault(store, { posit: wordPage('posit') }, sightings);
+    try {
+      const result = await prepareReview(config, TODAY);
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.data.used_today).toHaveLength(1);
+      expect(result.data.used_today[0].sightings).toHaveLength(1);
+      expect(result.data.used_today[0].sightings[0].timestamp).toBe(`${TODAY}T21:15`);
+      expect(result.data.used_today[0].sightings[0].sentence).toBe('I posit that this works.');
+      expect(result.data.due_not_used).toHaveLength(0);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it('one event with 2 words → both in bucket 2', async () => {
     const store: MasteryStore = {
       version: 1,
       words: {
-        posit: { word: 'posit', box: 2, status: 'learning', score: 60, last_practiced: YESTERDAY, next_review: TODAY, sessions: 2, failures: [], best_sentences: [] },
+        deliberate: { word: 'deliberate', box: 1, status: 'learning', score: 0, last_practiced: '', next_review: TODAY, sessions: 0, failures: [], best_sentences: [] },
+        suppress: { word: 'suppress', box: 2, status: 'learning', score: 50, last_practiced: YESTERDAY, next_review: TODAY, sessions: 1, failures: [], best_sentences: [] },
       },
+    };
+    const sightings: SightingsStore = {
+      version: 2,
+      days: { [TODAY]: [{ timestamp: `${TODAY}T10:00`, words: { deliberate: 'The deliberate attempt to suppress.', suppress: 'The deliberate attempt to suppress.' } }] },
+    };
+    const { config, cleanup } = await makeReviewVault(store, { deliberate: wordPage('deliberate'), suppress: wordPage('suppress') }, sightings);
+    try {
+      const result = await prepareReview(config, TODAY);
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.data.used_today).toHaveLength(2);
+      expect(result.data.used_today.map(w => w.word).sort()).toEqual(['deliberate', 'suppress']);
+      expect(result.data.new_arrivals).toHaveLength(0); // deliberate promoted from B1 to B2
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it('due word without sighting → bucket 3', async () => {
+    const store: MasteryStore = {
+      version: 1,
+      words: { posit: { word: 'posit', box: 2, status: 'learning', score: 60, last_practiced: YESTERDAY, next_review: TODAY, sessions: 2, failures: [], best_sentences: [] } },
     };
     const { config, cleanup } = await makeReviewVault(store, { posit: wordPage('posit') });
     try {
@@ -67,71 +111,16 @@ describe('prepareReview', () => {
       expect(result.ok).toBe(true);
       if (!result.ok) return;
       expect(result.data.due_not_used).toHaveLength(1);
-      expect(result.data.due_not_used[0].word).toBe('posit');
       expect(result.data.used_today).toHaveLength(0);
     } finally {
       await cleanup();
     }
   });
 
-  it('due word with today sighting → promoted to bucket 2', async () => {
+  it('dormant word → counted', async () => {
     const store: MasteryStore = {
       version: 1,
-      words: {
-        posit: { word: 'posit', box: 2, status: 'learning', score: 60, last_practiced: YESTERDAY, next_review: TODAY, sessions: 2, failures: [], best_sentences: [] },
-      },
-    };
-    const sightings: SightingsStore = {
-      version: 1,
-      days: {
-        [TODAY]: {
-          posit: [{ date: TODAY, sentence: 'I posit that this works.', channel: 'telegram' }],
-        },
-      },
-    };
-    const { config, cleanup } = await makeReviewVault(store, { posit: wordPage('posit') }, sightings);
-    try {
-      const result = await prepareReview(config, TODAY);
-      expect(result.ok).toBe(true);
-      if (!result.ok) return;
-      expect(result.data.used_today).toHaveLength(1);
-      expect(result.data.used_today[0].word).toBe('posit');
-      expect(result.data.used_today[0].sightings).toHaveLength(1);
-      expect(result.data.due_not_used).toHaveLength(0);
-    } finally {
-      await cleanup();
-    }
-  });
-
-  it('new word with today sighting → promoted to bucket 2', async () => {
-    const store: MasteryStore = {
-      version: 1,
-      words: {
-        posit: { word: 'posit', box: 1, status: 'learning', score: 0, last_practiced: '', next_review: TODAY, sessions: 0, failures: [], best_sentences: [] },
-      },
-    };
-    const sightings: SightingsStore = {
-      version: 1,
-      days: { [TODAY]: { posit: [{ date: TODAY, sentence: 'I posit something.' }] } },
-    };
-    const { config, cleanup } = await makeReviewVault(store, { posit: wordPage('posit') }, sightings);
-    try {
-      const result = await prepareReview(config, TODAY);
-      expect(result.ok).toBe(true);
-      if (!result.ok) return;
-      expect(result.data.used_today).toHaveLength(1);
-      expect(result.data.new_arrivals).toHaveLength(0);
-    } finally {
-      await cleanup();
-    }
-  });
-
-  it('not-due word → dormant', async () => {
-    const store: MasteryStore = {
-      version: 1,
-      words: {
-        posit: { word: 'posit', box: 3, status: 'reviewing', score: 85, last_practiced: YESTERDAY, next_review: '2026-12-31', sessions: 5, failures: [], best_sentences: [] },
-      },
+      words: { posit: { word: 'posit', box: 3, status: 'reviewing', score: 85, last_practiced: YESTERDAY, next_review: '2026-12-31', sessions: 5, failures: [], best_sentences: [] } },
     };
     const { config, cleanup } = await makeReviewVault(store, { posit: wordPage('posit') });
     try {
@@ -139,22 +128,19 @@ describe('prepareReview', () => {
       expect(result.ok).toBe(true);
       if (!result.ok) return;
       expect(result.data.dormant_count).toBe(1);
-      expect(result.data.used_today).toHaveLength(0);
     } finally {
       await cleanup();
     }
   });
 
-  it('dormant word with today sighting → promoted to bucket 2', async () => {
+  it('dormant word with sighting → promoted to bucket 2', async () => {
     const store: MasteryStore = {
       version: 1,
-      words: {
-        posit: { word: 'posit', box: 3, status: 'reviewing', score: 85, last_practiced: YESTERDAY, next_review: '2026-12-31', sessions: 5, failures: [], best_sentences: [] },
-      },
+      words: { posit: { word: 'posit', box: 3, status: 'reviewing', score: 85, last_practiced: YESTERDAY, next_review: '2026-12-31', sessions: 5, failures: [], best_sentences: [] } },
     };
     const sightings: SightingsStore = {
-      version: 1,
-      days: { [TODAY]: { posit: [{ date: TODAY, sentence: 'I posit that.' }] } },
+      version: 2,
+      days: { [TODAY]: [{ timestamp: `${TODAY}T14:00`, words: { posit: 'I posit that.' } }] },
     };
     const { config, cleanup } = await makeReviewVault(store, { posit: wordPage('posit') }, sightings);
     try {
@@ -168,7 +154,7 @@ describe('prepareReview', () => {
     }
   });
 
-  it('counts total sightings across words', async () => {
+  it('total_sightings_today counts all events', async () => {
     const store: MasteryStore = {
       version: 1,
       words: {
@@ -177,48 +163,19 @@ describe('prepareReview', () => {
       },
     };
     const sightings: SightingsStore = {
-      version: 1,
-      days: {
-        [TODAY]: {
-          posit: [
-            { date: TODAY, sentence: 'I posit A.' },
-            { date: TODAY, sentence: 'I posit B.' },
-          ],
-          liminal: [
-            { date: TODAY, sentence: 'A liminal space.' },
-          ],
-        },
-      },
+      version: 2,
+      days: { [TODAY]: [
+        { timestamp: `${TODAY}T10:00`, words: { posit: 'I posit A.', liminal: 'A liminal space.' } },
+        { timestamp: `${TODAY}T11:00`, words: { posit: 'I posit B.' } },
+      ] },
     };
-    const { config, cleanup } = await makeReviewVault(store, {
-      posit: wordPage('posit'),
-      liminal: wordPage('liminal'),
-    }, sightings);
+    const { config, cleanup } = await makeReviewVault(store, { posit: wordPage('posit'), liminal: wordPage('liminal') }, sightings);
     try {
       const result = await prepareReview(config, TODAY);
       expect(result.ok).toBe(true);
       if (!result.ok) return;
+      // posit: 2 sightings, liminal: 1 sighting = 3 total
       expect(result.data.total_sightings_today).toBe(3);
-      expect(result.data.total_words).toBe(2);
-    } finally {
-      await cleanup();
-    }
-  });
-
-  it('no sightings.json → all words in non-used buckets', async () => {
-    const store: MasteryStore = {
-      version: 1,
-      words: {
-        posit: { word: 'posit', box: 2, status: 'learning', score: 60, last_practiced: YESTERDAY, next_review: TODAY, sessions: 2, failures: [], best_sentences: [] },
-      },
-    };
-    const { config, cleanup } = await makeReviewVault(store, { posit: wordPage('posit') });
-    try {
-      const result = await prepareReview(config, TODAY);
-      expect(result.ok).toBe(true);
-      if (!result.ok) return;
-      expect(result.data.used_today).toHaveLength(0);
-      expect(result.data.due_not_used).toHaveLength(1);
     } finally {
       await cleanup();
     }

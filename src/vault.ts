@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { ToolResult, ToolError, VaultConfig, PluginSidecarConfig, MasteryStore, SightingsStore, NudgeQueue, ok, err } from './types.js';
+import { ToolResult, ToolError, VaultConfig, PluginSidecarConfig, MasteryStore, SightingsStore, SightingsStoreV1, SightingEvent, NudgeQueue, ok, err } from './types.js';
 import { writeTextFileAtomic, withFileLock } from './io-utils.js';
 
 // ============================================================
@@ -231,17 +231,42 @@ export async function withSightingsLock<T>(jsonPath: string, fn: () => Promise<T
 }
 
 export async function readSightingsStore(jsonPath: string): Promise<ToolResult<SightingsStore>> {
+  let raw: string;
   try {
-    const raw = await fs.readFile(jsonPath, 'utf8');
-    const parsed = JSON.parse(raw) as SightingsStore;
-    return ok(parsed);
+    raw = await fs.readFile(jsonPath, 'utf8');
   } catch (e: unknown) {
-    const code = (e as NodeJS.ErrnoException).code;
-    if (code === 'ENOENT') {
-      return ok({ version: 1, days: {} });
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') {
+      return ok({ version: 2, days: {} });
     }
     return err({ code: 'PARSE_ERROR', message: `Could not read sightings.json: ${String(e)}` });
   }
+
+  let parsed: { version?: number; days?: unknown };
+  try { parsed = JSON.parse(raw); } catch {
+    return err({ code: 'PARSE_ERROR', message: 'sightings.json is not valid JSON.' });
+  }
+
+  // v1 → v2 migration (in-memory only; next write saves as v2)
+  if (parsed.version === 1) {
+    const v1 = parsed as SightingsStoreV1;
+    const v2: SightingsStore = { version: 2, days: {} };
+    for (const [day, words] of Object.entries(v1.days)) {
+      const events: SightingEvent[] = [];
+      for (const [word, entries] of Object.entries(words)) {
+        for (const entry of entries) {
+          events.push({
+            timestamp: entry.date + 'T00:00',
+            channel: entry.channel,
+            words: { [word]: entry.sentence },
+          });
+        }
+      }
+      v2.days[day] = events;
+    }
+    return ok(v2);
+  }
+
+  return ok(parsed as SightingsStore);
 }
 
 export async function writeSightingsStore(
