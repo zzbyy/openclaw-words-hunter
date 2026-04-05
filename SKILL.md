@@ -5,35 +5,41 @@ for any captured Words Hunter vocabulary.
 
 ---
 
-## Critical behavior rule
+## Plugin scope
 
-You are a general-purpose assistant that happens to have vocabulary tools.
-In normal conversation, respond naturally — never evaluate, grade, or
-acknowledge vocabulary usage. The sighting hook detects word usage silently
-in the background. Usage evaluation ONLY happens inside a mastery session
-that the user explicitly starts with a vocab-specific phrase.
+The Words Hunter plugin adds vocabulary tools to your capabilities. It does not
+change your role or identity. In normal conversation, respond as you normally
+would — never evaluate, grade, or acknowledge vocabulary usage. The sighting hook
+handles word detection silently in the background. Usage evaluation only happens
+when the user explicitly starts a vocab session using a phrase that references
+words, vocab, or the word vault.
 
 ---
 
 ## Trigger commands
 
-The following phrases start a session or show vault status. Only trigger when the
-user's message clearly references vocabulary, words, or the word vault. If the message
-could be about something else (calendar, tasks, code review), do **not** treat it as
-a vocab trigger. When in doubt, ask.
+The following phrases start a vocab session or show vault status. Only trigger
+when the user's message clearly references vocabulary, words, or the word vault
+using a domain keyword (`word(s)`, `vocab`, `vocabulary`, `word vault`, `hunt`).
+If the message could be about something else (calendar, tasks, code review), do
+**not** treat it as a vocab trigger. When in doubt, ask.
 
 **Start a mastery session** (call `scan_vault(filter="due")`):
 - "let's review words"
-- "any words to review today?"
+- "any words to review?"
 - "what words are due?"
 - "vocab time"
 - "practice vocabulary"
 
-**Start a daily review** (call `prepare_review()`):
-- "daily review"
-- "how did I do today?"
+**Start a daily vocab review** (call `prepare_review()`):
+- "daily vocab review"
+- "how did I do with my words today?"
 - "review my words"
 - "vocab review"
+
+**Review a past day** (call `prepare_review(date="YYYY-MM-DD")`):
+- "how did I do with my words yesterday?"
+- "review my words from last Tuesday"
 
 **Show vault summary** (call `vault_summary`):
 - "show my words"
@@ -119,7 +125,7 @@ Call `record_mastery(word, score, best_sentence?, failure_note?)`.
 - Score < 85: "Almost — the main issue was {failure_note}. Box {old}→{new}. We'll revisit this in {interval} days."
 
 **If graduated (box 4 reached for first time):**
-> "You've mastered **{word}**! 🎉"
+> "You've mastered **{word}**!"
 Generate a memorable sentence using the word. Call `update_page(word, graduation_sentence=...)`.
 The sentence must be **non-empty**, include **{word}** as a whole word (case-insensitive), and be **≤200 characters**; otherwise the tool returns `INVALID_GRADUATION` and the page is not updated.
 Send the celebration message to the channel.
@@ -154,7 +160,7 @@ If the user stops responding mid-session:
 - After **60 minutes** of no reply: send once:
   > "Session paused — say 'let's review words' when you're ready. Progress so far has been saved."
 - Save any mastery records already written. The session state is not held in memory —
-  next /vocab will resume with any remaining due words.
+  next session will resume with any remaining due words.
 
 ---
 
@@ -164,25 +170,11 @@ The sighting hook fires independently on every outgoing message. When a captured
 (or its inflected form) appears in a message the user sends, `record_sighting` is called
 automatically. Sightings are stored in `.wordshunter/sightings.json` — word pages are
 not modified. Sightings are logged silently with no interruptions during conversation.
-The sighting data is used during the daily review.
+The sighting data is used during the daily vocab review.
 
 ---
 
-## Daily review
-
-### Trigger commands
-
-**Start a daily review** (call `prepare_review()`):
-- "daily review"
-- "how did I do today?"
-- "review my words"
-- "vocab review"
-
-**Review a past day** (call `prepare_review(date="YYYY-MM-DD")`):
-- "how did I do yesterday?"
-- "review last Tuesday"
-
-### Review flow
+## Daily vocab review flow
 
 Call `prepare_review()`. The tool returns structured data. Walk the user through
 three steps as a natural conversation — never mention "buckets" or internal labels.
@@ -232,12 +224,13 @@ End with a brief natural closing — no rigid summary template. Something like:
 
 ---
 
-## Weekly review
+## Weekly vocab review
 
-Extends the daily review with weekly perspective. Triggered automatically on
-Sunday 9am or manually ("weekly review", "how was my week?").
+Extends the daily vocab review with weekly perspective. Triggered by:
+- "weekly vocab review"
+- "how were my words this week?"
 
-Run the daily review for today, then add a weekly summary:
+Run the daily vocab review for today, then add a weekly summary:
 > **This week:** {total_sightings} sightings across {unique_words} words.
 > SRS advances: {count} | Drops: {count} | New words: {count}
 
@@ -246,12 +239,12 @@ Run the daily review for today, then add a weekly summary:
 ## Daily review notification (9pm, primary channel)
 
 Sent automatically. Prompts the user to start a review:
-> Daily vocab review ready — {N} words tracked, {M} due. Say "daily review" to start.
+> Daily vocab review ready — {N} words tracked, {M} due. Say "daily vocab review" to start.
 
 ## Weekly recap notification (Sunday 9am, primary channel)
 
 Sent automatically. Prompts the user to start a weekly review:
-> Weekly vocab review — {N} words, {mastered} mastered, {reviewing} reviewing, {learning} learning. Say "weekly review" for details.
+> Weekly vocab review — {N} words, {mastered} mastered, {reviewing} reviewing, {learning} learning. Say "weekly vocab review" for details.
 
 ---
 
@@ -275,7 +268,7 @@ your outgoing messages, not on messages you receive.
 | "hunt posit" | Same as "add word" |
 | "vocab add posit" | Same as "add word" |
 
-`vault_summary` is called for all summary-like requests. Format:
+`vault_summary` is called when the user asks about their word vault stats. Format:
 > You have **{total}** words: {mastered} mastered, {reviewing} reviewing, {learning} learning.
 > {due_today} due today. Last session: {last_session or 'never'}.
 
@@ -289,12 +282,12 @@ The message hook recognizes these patterns directly (no agent reasoning needed):
   > "vocab add posit"
 
 For more natural phrasing, the agent calls the `create_word` tool:
-  > "I want to study ephemeral"
+  > "I want to learn the word ephemeral"
   > "capture the word liminal"
 
 All paths create the word page and register it in `mastery.json` (box 1, due today). If the page already exists, a `FILE_EXISTS` message is returned instead of overwriting.
 
-**extract synonyms [word]** — extract and store synonyms (LLM-driven).
+**vocab synonyms [word]** — extract and store synonyms for a word (LLM-driven).
   Agent calls: load_word({ word }), reads content, synthesizes synonyms (max 5, lowercase),
   then calls: update_word_meta({ word, synonyms: [...] })
   Reply: "Synonyms for [word]: suggest, propose, assert. Stored."
