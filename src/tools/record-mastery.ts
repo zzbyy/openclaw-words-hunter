@@ -1,5 +1,3 @@
-import fs from 'node:fs/promises';
-import path from 'node:path';
 import { ToolResult, ToolError, VaultConfig, WordEntry, BestSentence, ok, err } from '../types.js';
 import {
   masteryJsonPath,
@@ -9,8 +7,6 @@ import {
   withMasteryLock,
 } from '../vault.js';
 import { advance, todayString, MASTERY_THRESHOLD } from '../srs/scheduler.js';
-import { upsertCallout } from '../callout-renderer.js';
-import { readWordPage, writeWordPageAtomic, prependLineToSection, insertSectionAfterCallout } from '../page-utils.js';
 
 export interface RecordMasteryInput {
   word: string;
@@ -28,7 +24,7 @@ export interface RecordMasteryResult {
 }
 
 type MasteryLockOutcome =
-  | { ok: true; updatedEntry: WordEntry; currentBox: 1 | 2 | 3 | 4 | 5; graduated: boolean }
+  | { ok: true; updatedEntry: WordEntry; graduated: boolean }
   | { ok: false; error: ToolError };
 
 /**
@@ -37,10 +33,10 @@ type MasteryLockOutcome =
  * 1. Validates score (NaN_SCORE if invalid).
  * 2. Reads mastery.json.
  * 3. Advances SRS schedule.
- * 4. Appends to ### History in the .md page.
- * 5. Writes mastery.json atomically.
- * 6. Regenerates > [!mastery] callout in .md page.
- * 7. Returns new schedule + graduated flag.
+ * 4. Writes mastery.json atomically.
+ * 5. Returns new schedule + graduated flag.
+ *
+ * mastery.json is the single source of truth. Word .md pages are not modified.
  */
 export async function recordMastery(
   config: VaultConfig,
@@ -97,45 +93,13 @@ export async function recordMastery(
     const writeResult = await writeMasteryStore(jsonPath, store);
     if (!writeResult.ok) return { ok: false, error: writeResult.error };
 
-    return { ok: true, updatedEntry, currentBox, graduated };
+    return { ok: true, updatedEntry, graduated };
   });
 
   if (!masteryOutcome.ok) return { ok: false, error: masteryOutcome.error };
 
-  const { updatedEntry, currentBox, graduated } = masteryOutcome;
+  const { updatedEntry, graduated } = masteryOutcome;
   const { box, status, next_review } = updatedEntry;
-
-  // Update .md page: append History + regenerate callout
-  try {
-    const pageResult = await readWordPage(config, wordLower);
-    if (!pageResult.ok) throw new Error(pageResult.error.message);
-    const { mdPath, content: pageContent } = pageResult.data;
-    let content = pageContent;
-
-    // Append history line (sentences = 1 if a sentence was saved this session, 0 otherwise)
-    const sentencesThisSession = (input.best_sentence && score >= MASTERY_THRESHOLD) ? 1 : 0;
-    const historyLine = `- ${today}: box ${currentBox}→${box}, score ${score}, sentences: ${sentencesThisSession}`;
-    if (/^### History\n/m.test(content)) {
-      content = prependLineToSection(content, '### History', historyLine);
-    } else {
-      if (/^> \[!mastery\]/m.test(content)) {
-        content = insertSectionAfterCallout(content, 'mastery', '### History', historyLine);
-      } else {
-        content += `\n\n### History\n${historyLine}\n`;
-      }
-    }
-
-    // Regenerate callout
-    content = upsertCallout(content, updatedEntry);
-
-    // Write .md atomically
-    const writeResult = await writeWordPageAtomic(mdPath, content, `wh-mastery-${wordLower}`);
-    if (!writeResult.ok) throw new Error(writeResult.error.message);
-  } catch {
-    // .md write failure is non-fatal — mastery.json is already saved
-    // The callout is a display view; a failed update won't corrupt state.
-    // words-hunter repair can regenerate it.
-  }
 
   return ok({ word: wordLower, box, status, next_review, graduated });
 }

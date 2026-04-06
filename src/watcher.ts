@@ -14,8 +14,10 @@
 
 import type { FSWatcher } from 'chokidar';
 import path from 'node:path';
-import { VaultConfig } from './types.js';
-import { nudgeQueuePath, wordsFolderPath, mutateNudgeQueue } from './vault.js';
+import type { VaultConfig, WordEntry } from './types.js';
+import { nudgeQueuePath, wordsFolderPath, mutateNudgeQueue, masteryJsonPath, readMasteryStore, writeMasteryStore, withMasteryLock } from './vault.js';
+import { todayString } from './srs/scheduler.js';
+import { isWordPageFilename } from './word-pages.js';
 
 const MAX_RESTART_ATTEMPTS = 3;
 const BACKOFF_BASE_MS = 5_000;  // 5s, 10s, 20s
@@ -50,8 +52,12 @@ export async function startWatcher(
     });
 
     watcher.on('add', (filePath: string) => {
-      if (!filePath.endsWith('.md')) return;
+      const fileName = path.basename(filePath);
+      if (!isWordPageFilename(fileName)) return;
       const word = path.basename(filePath, '.md').toLowerCase();
+      registerWord(config, word).catch(e => {
+        logger.warn(`Failed to register word '${word}': ${String(e)}`);
+      });
       enqueueNudge(config, word).catch(e => {
         logger.warn(`Failed to enqueue nudge for '${word}': ${String(e)}`);
       });
@@ -91,6 +97,29 @@ export async function startWatcher(
     stopped = true;
     watcher?.close().catch(() => { /* best effort */ });
   };
+}
+
+export async function registerWord(config: VaultConfig, word: string): Promise<void> {
+  const jsonPath = masteryJsonPath(config);
+  await withMasteryLock(jsonPath, async () => {
+    const storeResult = await readMasteryStore(jsonPath);
+    if (!storeResult.ok) return;
+    if (storeResult.data.words[word]) return; // already tracked
+    const today = todayString();
+    const entry: WordEntry = {
+      word,
+      box: 1,
+      status: 'learning',
+      score: 0,
+      last_practiced: '',
+      next_review: today,
+      sessions: 0,
+      failures: [],
+      best_sentences: [],
+    };
+    storeResult.data.words[word] = entry;
+    await writeMasteryStore(jsonPath, storeResult.data);
+  });
 }
 
 export async function enqueueNudge(config: VaultConfig, word: string, now: Date = new Date()): Promise<void> {

@@ -2,7 +2,7 @@ import type { PluginRuntime } from './types.js';
 
 export async function emitPluginNotification(
   runtime: PluginRuntime,
-  tag: 'nudge' | 'weekly' | 'inline',
+  tag: 'nudge' | 'weekly' | 'inline' | 'daily-review',
   channelId: string | null,
   message: string,
 ): Promise<void> {

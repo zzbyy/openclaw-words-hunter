@@ -35,7 +35,11 @@
     "name": "Words Hunter",
     "extensions": [
       "./dist/index.js"
-    ]
+    ],
+    "compat": {
+      "pluginApi": ">=2026.3.22",
+      "minGatewayVersion": "2026.3.22"
+    }
   },
   "scripts": {
     "prepack": "npm run build",

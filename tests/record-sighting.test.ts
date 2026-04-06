@@ -1,76 +1,133 @@
 import { describe, it, expect } from 'vitest';
-import { recordSighting } from '../src/tools/record-sighting.js';
-import type { VaultConfig } from '../src/types.js';
-import { mkdtemp, rm, mkdir, writeFile, readFile } from 'node:fs/promises';
+import { recordSighting, recordSightingBatch } from '../src/tools/record-sighting.js';
+import type { VaultConfig, SightingsStore } from '../src/types.js';
+import { mkdtemp, rm, mkdir, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { readFileSync } from 'node:fs';
-
-const FIXTURES = join(import.meta.dirname, 'fixtures');
 
 async function makeVault(): Promise<{ vaultPath: string; config: VaultConfig; cleanup: () => Promise<void> }> {
   const vaultPath = await mkdtemp(join(tmpdir(), 'wh-test-'));
-  await mkdir(join(vaultPath, 'Words'), { recursive: true });
+  await mkdir(join(vaultPath, '.wordshunter'), { recursive: true });
   const config: VaultConfig = { vault_path: vaultPath, words_folder: 'Words' };
   return { vaultPath, config, cleanup: () => rm(vaultPath, { recursive: true, force: true }) };
 }
 
-describe('record_sighting', () => {
-  it('appends sighting to existing ## Sightings section', async () => {
+async function readStore(vaultPath: string): Promise<SightingsStore> {
+  const raw = await readFile(join(vaultPath, '.wordshunter', 'sightings.json'), 'utf8');
+  return JSON.parse(raw);
+}
+
+const TODAY = new Date().toISOString().slice(0, 10);
+
+describe('recordSightingBatch', () => {
+  it('writes one event with multiple words', async () => {
     const { vaultPath, config, cleanup } = await makeVault();
     try {
-      const initial = readFileSync(join(FIXTURES, 'posit-no-mastery.md'), 'utf8');
-      await writeFile(join(vaultPath, 'Words', 'posit.md'), initial, 'utf8');
-
-      await recordSighting(config, { word: 'posit', sentence: 'I posit that this works.', channel: 'Telegram' });
-      const updated = await readFile(join(vaultPath, 'Words', 'posit.md'), 'utf8');
-      expect(updated).toContain('I posit that this works.');
-      expect(updated).toContain('*(Telegram)*');
+      await recordSightingBatch(config, {
+        hits: [
+          { word: 'deliberate', sentence: 'The deliberate attempt.' },
+          { word: 'suppress', sentence: 'The deliberate attempt.' },
+        ],
+        channel: 'telegram',
+      });
+      const store = await readStore(vaultPath);
+      expect(store.version).toBe(2);
+      expect(store.days[TODAY]).toHaveLength(1);
+      expect(store.days[TODAY][0].words).toEqual({
+        deliberate: 'The deliberate attempt.',
+        suppress: 'The deliberate attempt.',
+      });
+      expect(store.days[TODAY][0].channel).toBe('telegram');
+      expect(store.days[TODAY][0].timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/);
     } finally {
       await cleanup();
     }
   });
 
-  it('creates ## Sightings section if absent', async () => {
+  it('appends multiple events on same day', async () => {
     const { vaultPath, config, cleanup } = await makeVault();
     try {
-      // Minimal page with no Sightings section
-      const initial = '> [!info] posit\n> //\n\n## Meanings\n\n> to put forward';
-      await writeFile(join(vaultPath, 'Words', 'posit.md'), initial, 'utf8');
-
-      await recordSighting(config, { word: 'posit', sentence: 'I posit this.' });
-      const updated = await readFile(join(vaultPath, 'Words', 'posit.md'), 'utf8');
-      expect(updated).toContain('## Sightings');
-      expect(updated).toContain('I posit this.');
+      await recordSightingBatch(config, { hits: [{ word: 'posit', sentence: 'First.' }] });
+      await recordSightingBatch(config, { hits: [{ word: 'posit', sentence: 'Second.' }] });
+      const store = await readStore(vaultPath);
+      expect(store.days[TODAY]).toHaveLength(2);
     } finally {
       await cleanup();
     }
   });
 
-  it('prepends repeated sightings without dropping earlier entries', async () => {
+  it('empty hits → no write', async () => {
     const { vaultPath, config, cleanup } = await makeVault();
     try {
-      const initial = readFileSync(join(FIXTURES, 'posit-no-mastery.md'), 'utf8');
-      await writeFile(join(vaultPath, 'Words', 'posit.md'), initial, 'utf8');
-
-      await recordSighting(config, { word: 'posit', sentence: 'I posit this first.' });
-      await recordSighting(config, { word: 'posit', sentence: 'I posit this second.' });
-
-      const updated = await readFile(join(vaultPath, 'Words', 'posit.md'), 'utf8');
-      expect(updated).toContain('I posit this first.');
-      expect(updated).toContain('I posit this second.');
-      expect(updated.indexOf('I posit this second.')).toBeLessThan(updated.indexOf('I posit this first.'));
+      await recordSightingBatch(config, { hits: [] });
+      // sightings.json should not exist
+      await expect(readFile(join(vaultPath, '.wordshunter', 'sightings.json'), 'utf8')).rejects.toThrow();
     } finally {
       await cleanup();
     }
   });
 
-  it('missing .md file → FILE_NOT_FOUND', async () => {
-    const { config, cleanup } = await makeVault();
+  it('deduplicates identical messages and increments count', async () => {
+    const { vaultPath, config, cleanup } = await makeVault();
     try {
-      const result = await recordSighting(config, { word: 'ghost', sentence: 'test' });
-      expect(result.ok).toBe(false);
-      if (!result.ok) expect(result.error.code).toBe('FILE_NOT_FOUND');
+      const hits = [{ word: 'deliberate', sentence: 'A deliberate act.' }, { word: 'suppress', sentence: 'A deliberate act.' }];
+      await recordSightingBatch(config, { hits, channel: 'telegram' });
+      await recordSightingBatch(config, { hits, channel: 'telegram' });
+      await recordSightingBatch(config, { hits, channel: 'telegram' });
+      const store = await readStore(vaultPath);
+      // One event, not three
+      expect(store.days[TODAY]).toHaveLength(1);
+      expect(store.days[TODAY][0].count).toBe(3);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it('different sentences are NOT deduped', async () => {
+    const { vaultPath, config, cleanup } = await makeVault();
+    try {
+      await recordSightingBatch(config, { hits: [{ word: 'posit', sentence: 'First use.' }] });
+      await recordSightingBatch(config, { hits: [{ word: 'posit', sentence: 'Second use.' }] });
+      const store = await readStore(vaultPath);
+      expect(store.days[TODAY]).toHaveLength(2);
+      expect(store.days[TODAY][0].count).toBeUndefined();
+      expect(store.days[TODAY][1].count).toBeUndefined();
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it('auto-prunes days older than 90 days', async () => {
+    const { vaultPath, config, cleanup } = await makeVault();
+    try {
+      // Write a sighting first so the file exists
+      await recordSightingBatch(config, { hits: [{ word: 'posit', sentence: 'Today.' }] });
+
+      // Manually inject an old day
+      const store = await readStore(vaultPath);
+      store.days['2020-01-01'] = [{ timestamp: '2020-01-01T10:00', words: { old: 'Old sentence.' } }];
+      const { writeFile: wf } = await import('node:fs/promises');
+      await wf(join(vaultPath, '.wordshunter', 'sightings.json'), JSON.stringify(store), 'utf8');
+
+      // Write another sighting to trigger prune
+      await recordSightingBatch(config, { hits: [{ word: 'posit', sentence: 'Trigger prune.' }] });
+      const pruned = await readStore(vaultPath);
+      expect(pruned.days['2020-01-01']).toBeUndefined();
+      expect(pruned.days[TODAY]).toBeDefined();
+    } finally {
+      await cleanup();
+    }
+  });
+});
+
+describe('recordSighting (single-word wrapper)', () => {
+  it('writes one event with one word', async () => {
+    const { vaultPath, config, cleanup } = await makeVault();
+    try {
+      await recordSighting(config, { word: 'posit', sentence: 'I posit that.', channel: 'telegram' });
+      const store = await readStore(vaultPath);
+      expect(store.days[TODAY]).toHaveLength(1);
+      expect(store.days[TODAY][0].words).toEqual({ posit: 'I posit that.' });
     } finally {
       await cleanup();
     }

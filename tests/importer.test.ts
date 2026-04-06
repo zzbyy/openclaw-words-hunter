@@ -117,7 +117,7 @@ describe('importUntracked', () => {
     }
   });
 
-  it('skips .md without > [!info] callout', async () => {
+  it('skips .md without recognized word page format', async () => {
     const { vaultPath, config, cleanup } = await makeVault();
     try {
       const template = readFileSync(join(FIXTURES, 'posit-no-mastery.md'), 'utf8');
@@ -126,6 +126,32 @@ describe('importUntracked', () => {
 
       const result = await importUntracked(config);
       expect(result.imported).toEqual(['good']);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it('imports v2-format word pages (# word + Pronunciation)', async () => {
+    const { vaultPath, config, cleanup } = await makeVault();
+    try {
+      const v2Page = '# deliberate\n\n**Pronunciation:** 🇬🇧 /dɪˈlɪb.r.ət/ · 🇺🇸 /dɪˈlɪb.ɚ.ət/ · **Level:** B2\n\n## Sightings\n';
+      await writeFile(join(vaultPath, 'Words', 'deliberate.md'), v2Page, 'utf8');
+
+      const result = await importUntracked(config);
+      expect(result.imported).toEqual(['deliberate']);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it('imports pages with > [!mastery] callout (practiced words)', async () => {
+    const { vaultPath, config, cleanup } = await makeVault();
+    try {
+      const masteryPage = '> [!mastery]\n> **Status:** learning\n> **Box:** 2  ·  Next review: 2026-04-04\n\n# cogitate\n';
+      await writeFile(join(vaultPath, 'Words', 'cogitate.md'), masteryPage, 'utf8');
+
+      const result = await importUntracked(config);
+      expect(result.imported).toEqual(['cogitate']);
     } finally {
       await cleanup();
     }
@@ -144,12 +170,56 @@ describe('isWordPage', () => {
     }
   });
 
-  it('false without [!info]', async () => {
+  it('false for non-word-page content', async () => {
     const { vaultPath, cleanup } = await makeVault();
     try {
       const p = join(vaultPath, 'Words', 'a.md');
       await writeFile(p, '# hello', 'utf8');
       expect(await isWordPage(p)).toBe(false);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it('true for v1 page with > [!info]', async () => {
+    const { vaultPath, cleanup } = await makeVault();
+    try {
+      const p = join(vaultPath, 'Words', 'posit.md');
+      await writeFile(p, '> [!info] posit\n> //\n\n## Sightings', 'utf8');
+      expect(await isWordPage(p)).toBe(true);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it('true for v2 page with # word + Pronunciation', async () => {
+    const { vaultPath, cleanup } = await makeVault();
+    try {
+      const p = join(vaultPath, 'Words', 'deliberate.md');
+      await writeFile(p, '# deliberate\n\n**Pronunciation:** 🇬🇧 /dɪˈlɪb.r.ət/\n\n## Sightings', 'utf8');
+      expect(await isWordPage(p)).toBe(true);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it('true for page with > [!mastery] callout', async () => {
+    const { vaultPath, cleanup } = await makeVault();
+    try {
+      const p = join(vaultPath, 'Words', 'cogitate.md');
+      await writeFile(p, '> [!mastery]\n> **Status:** learning\n\n# cogitate', 'utf8');
+      expect(await isWordPage(p)).toBe(true);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it('true for v3 page with type: word-page frontmatter', async () => {
+    const { vaultPath, cleanup } = await makeVault();
+    try {
+      const p = join(vaultPath, 'Words', 'ephemeral.md');
+      await writeFile(p, '---\ntype: word-page\n---\n# ephemeral\n\nSome content.', 'utf8');
+      expect(await isWordPage(p)).toBe(true);
     } finally {
       await cleanup();
     }

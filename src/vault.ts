@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { ToolResult, ToolError, VaultConfig, PluginSidecarConfig, MasteryStore, NudgeQueue, ok, err } from './types.js';
+import { ToolResult, ToolError, VaultConfig, PluginSidecarConfig, MasteryStore, SightingsStore, SightingsStoreV1, SightingEvent, NudgeQueue, ok, err } from './types.js';
 import { writeTextFileAtomic, withFileLock } from './io-utils.js';
 
 // ============================================================
@@ -139,6 +139,10 @@ export function masteryJsonPath(config: VaultConfig): string {
   return path.join(config.vault_path, '.wordshunter', 'mastery.json');
 }
 
+export function sightingsJsonPath(config: VaultConfig): string {
+  return path.join(config.vault_path, '.wordshunter', 'sightings.json');
+}
+
 export function nudgeQueuePath(config: VaultConfig): string {
   return path.join(config.vault_path, '.wordshunter', 'pending-nudges.json');
 }
@@ -214,6 +218,66 @@ export async function writeMasteryStore(
     return ok(undefined);
   } catch (e) {
     return err({ code: 'WRITE_FAILED', message: `Could not write mastery.json: ${String(e)}` });
+  }
+}
+
+// ============================================================
+// sightings.json I/O
+// ============================================================
+
+export async function withSightingsLock<T>(jsonPath: string, fn: () => Promise<T>): Promise<T> {
+  const dir = path.dirname(jsonPath);
+  return withFileLock(dir, '.sightings.lock', fn);
+}
+
+export async function readSightingsStore(jsonPath: string): Promise<ToolResult<SightingsStore>> {
+  let raw: string;
+  try {
+    raw = await fs.readFile(jsonPath, 'utf8');
+  } catch (e: unknown) {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') {
+      return ok({ version: 2, days: {} });
+    }
+    return err({ code: 'PARSE_ERROR', message: `Could not read sightings.json: ${String(e)}` });
+  }
+
+  let parsed: { version?: number; days?: unknown };
+  try { parsed = JSON.parse(raw); } catch {
+    return err({ code: 'PARSE_ERROR', message: 'sightings.json is not valid JSON.' });
+  }
+
+  // v1 → v2 migration (in-memory only; next write saves as v2)
+  if (parsed.version === 1) {
+    const v1 = parsed as SightingsStoreV1;
+    const v2: SightingsStore = { version: 2, days: {} };
+    for (const [day, words] of Object.entries(v1.days)) {
+      const events: SightingEvent[] = [];
+      for (const [word, entries] of Object.entries(words)) {
+        for (const entry of entries) {
+          events.push({
+            timestamp: entry.date + 'T00:00',
+            channel: entry.channel,
+            words: { [word]: entry.sentence },
+          });
+        }
+      }
+      v2.days[day] = events;
+    }
+    return ok(v2);
+  }
+
+  return ok(parsed as SightingsStore);
+}
+
+export async function writeSightingsStore(
+  jsonPath: string,
+  store: SightingsStore,
+): Promise<ToolResult<void>> {
+  try {
+    await writeTextFileAtomic(jsonPath, JSON.stringify(store, null, 2), 'wh-sightings');
+    return ok(undefined);
+  } catch (e) {
+    return err({ code: 'WRITE_FAILED', message: `Could not write sightings.json: ${String(e)}` });
   }
 }
 

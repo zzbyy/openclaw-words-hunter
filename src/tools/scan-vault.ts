@@ -53,7 +53,7 @@ export async function scanVault(
       .filter(e => isDue(e, today))
       .map(e => ({
         word: e.word, status: e.status, next_review: e.next_review,
-        ...(e.coaching_mode === 'inline' ? { coaching_mode: 'inline' as const } : {}),
+        ...(e.coaching_mode === 'silent' ? { coaching_mode: 'silent' as const } : {}),
       }));
     return ok(due);
   }
@@ -63,7 +63,7 @@ export async function scanVault(
     word: e.word,
     status: e.status,
     next_review: e.next_review,
-    ...(e.coaching_mode === 'inline' ? { coaching_mode: 'inline' as const } : {}),
+    ...(e.coaching_mode === 'silent' ? { coaching_mode: 'silent' as const } : {}),
   }));
   return ok(all);
 }
