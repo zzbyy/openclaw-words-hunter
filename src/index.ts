@@ -111,7 +111,7 @@ export default definePluginEntry({
       })();
 
     // Fire one-time import when config loads
-    void configPromise.then(async (result) => {
+    configPromise.then(async (result) => {
       if (!result.ok) {
         api.logger.error(`[words-hunter] ${result.error.message}`);
         return;
@@ -120,8 +120,11 @@ export default definePluginEntry({
       if (imported.length > 0) {
         api.logger.info(`[words-hunter] imported ${imported.length} untracked word(s): ${imported.join(', ')}`);
       }
-      // Regenerate word index on startup (catches up with app-side changes)
-      try { await regenerateWordIndex(result.data); } catch { /* best-effort */ }
+      // Regenerate word index on startup (catches up with app-side changes).
+      // Fire-and-forget — don't block the startup chain.
+      regenerateWordIndex(result.data).catch(() => {});
+    }).catch((err) => {
+      api.logger.error(`[words-hunter] startup error: ${String(err)}`);
     });
 
     // --- Tool registration ---
