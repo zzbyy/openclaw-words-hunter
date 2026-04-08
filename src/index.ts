@@ -301,7 +301,7 @@ export default definePluginEntry({
 
       await onOutgoingMessage(configResult.data, event.content, ctx.channelId);
       // Also persist primary_channel for nudge routing
-      void persistPrimaryChannel(configResult.data, ctx.channelId);
+      persistPrimaryChannel(configResult.data, ctx.channelId).catch(() => {});
     });
 
     // --- Background crons via gateway_start ---
@@ -327,23 +327,23 @@ export default definePluginEntry({
         },
       });
 
-      void fireOverdueNudges(config, api);
-      void fireWeeklyRecapIfDue(config, api, explicitRecapChannel);
-      void fireDailyReviewIfDue(config, api, explicitRecapChannel);
+      fireOverdueNudges(config, api).catch(() => {});
+      fireWeeklyRecapIfDue(config, api, explicitRecapChannel).catch(() => {});
+      fireDailyReviewIfDue(config, api, explicitRecapChannel).catch(() => {});
 
       // Nudge check every 15 minutes
       nudgeInterval = setInterval(() => {
-        void fireOverdueNudges(config, api);
+        fireOverdueNudges(config, api).catch(() => {});
       }, 15 * 60 * 1000);
 
       // Weekly recap: check every 15 minutes and fire once per weekly slot.
       weeklyInterval = setInterval(() => {
-        void fireWeeklyRecapIfDue(config, api, explicitRecapChannel);
+        fireWeeklyRecapIfDue(config, api, explicitRecapChannel).catch(() => {});
       }, 15 * 60 * 1000);
 
       // Daily review: check every 15 minutes, fire once per day at 9pm.
       dailyReviewInterval = setInterval(() => {
-        void fireDailyReviewIfDue(config, api, explicitRecapChannel);
+        fireDailyReviewIfDue(config, api, explicitRecapChannel).catch(() => {});
       }, 15 * 60 * 1000);
     });
 
