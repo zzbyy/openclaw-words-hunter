@@ -6,10 +6,11 @@ import { writeTextFileAtomic } from './io-utils.js';
 import { isDue, todayString } from './srs/scheduler.js';
 
 /**
- * Regenerate Words/index.md — a glanceable overview of all captured words.
+ * Regenerate __index__.md at vault root — a glanceable vocabulary dashboard.
  *
- * Format: dashboard stats header + status-grouped word lists with [[wiki-links]].
- * Called after every record_mastery write. Failures are swallowed (non-critical).
+ * Format: Obsidian callout with emoji stats + status-grouped word lists.
+ * Called after record_mastery, create_word, and plugin startup.
+ * Failures are swallowed (non-critical).
  */
 export async function regenerateWordIndex(config: VaultConfig): Promise<void> {
   const jsonPath = masteryJsonPath(config);
@@ -24,7 +25,7 @@ export async function regenerateWordIndex(config: VaultConfig): Promise<void> {
   try {
     const files = await fs.readdir(wordsDir);
     existingFiles = new Set(
-      files.filter(f => f.endsWith('.md') && f.toLowerCase() !== 'index.md').map(f => f.toLowerCase()),
+      files.filter(f => f.endsWith('.md')).map(f => f.toLowerCase()),
     );
   } catch {
     existingFiles = new Set();
@@ -64,27 +65,28 @@ export async function regenerateWordIndex(config: VaultConfig): Promise<void> {
   const total = mastered.length + reviewing.length + learning.length;
   const lines: string[] = [];
 
-  lines.push(`> ${total} words · ${mastered.length} mastered · ${reviewing.length} reviewing · ${learning.length} learning · ${dueCount} due today`);
+  lines.push('> [!summary] 📚 Vocabulary Dashboard');
+  lines.push(`> **${total}** words · ✅ **${mastered.length}** mastered · 🔄 **${reviewing.length}** reviewing · 🌱 **${learning.length}** learning · 📋 **${dueCount}** due today`);
   lines.push('');
 
   if (mastered.length > 0) {
-    lines.push(`## Mastered (${mastered.length})`);
+    lines.push(`## ✅ Mastered (${mastered.length})`);
     lines.push(mastered.map(w => `[[${w}]]`).join(' · '));
     lines.push('');
   }
 
   if (reviewing.length > 0) {
-    lines.push(`## Reviewing (${reviewing.length})`);
+    lines.push(`## 🔄 Reviewing (${reviewing.length})`);
     lines.push(reviewing.map(w => `[[${w}]]`).join(' · '));
     lines.push('');
   }
 
   if (learning.length > 0) {
-    lines.push(`## Learning (${learning.length})`);
+    lines.push(`## 🌱 Learning (${learning.length})`);
     lines.push(learning.map(w => `[[${w}]]`).join(' · '));
     lines.push('');
   }
 
-  const indexPath = path.join(wordsDir, 'index.md');
+  const indexPath = path.join(config.vault_path, '__index__.md');
   await writeTextFileAtomic(indexPath, lines.join('\n'), 'wh-index');
 }

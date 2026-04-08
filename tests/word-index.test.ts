@@ -22,7 +22,7 @@ async function writeWordPage(vaultPath: string, word: string): Promise<void> {
 }
 
 async function readIndex(vaultPath: string): Promise<string> {
-  return readFile(join(vaultPath, 'Words', 'index.md'), 'utf8');
+  return readFile(join(vaultPath, '__index__.md'), 'utf8');
 }
 
 describe('regenerateWordIndex', () => {
@@ -32,10 +32,11 @@ describe('regenerateWordIndex', () => {
       await writeStore(vaultPath, { version: 1, words: {} });
       await regenerateWordIndex(config);
       const content = await readIndex(vaultPath);
-      expect(content).toContain('0 words');
-      expect(content).not.toContain('## Mastered');
-      expect(content).not.toContain('## Reviewing');
-      expect(content).not.toContain('## Learning');
+      expect(content).toContain('**0** words');
+      expect(content).toContain('Vocabulary Dashboard');
+      expect(content).not.toContain('## ✅ Mastered');
+      expect(content).not.toContain('## 🔄 Reviewing');
+      expect(content).not.toContain('## 🌱 Learning');
     } finally {
       await cleanup();
     }
@@ -61,15 +62,15 @@ describe('regenerateWordIndex', () => {
       await regenerateWordIndex(config);
       const content = await readIndex(vaultPath);
 
-      expect(content).toContain('4 words');
-      expect(content).toContain('1 mastered');
-      expect(content).toContain('1 reviewing');
-      expect(content).toContain('2 learning');
-      expect(content).toContain('## Mastered (1)');
+      expect(content).toContain('**4** words');
+      expect(content).toContain('**1** mastered');
+      expect(content).toContain('**1** reviewing');
+      expect(content).toContain('**2** learning');
+      expect(content).toContain('## ✅ Mastered (1)');
       expect(content).toContain('[[posit]]');
-      expect(content).toContain('## Reviewing (1)');
+      expect(content).toContain('## 🔄 Reviewing (1)');
       expect(content).toContain('[[ephemeral]]');
-      expect(content).toContain('## Learning (2)');
+      expect(content).toContain('## 🌱 Learning (2)');
       expect(content).toContain('[[liminal]]');
       expect(content).toContain('[[nascent]]');
     } finally {
@@ -89,12 +90,11 @@ describe('regenerateWordIndex', () => {
       };
       await writeStore(vaultPath, store);
       await writeWordPage(vaultPath, 'posit');
-      // 'deleted' has no .md page
 
       await regenerateWordIndex(config);
       const content = await readIndex(vaultPath);
 
-      expect(content).toContain('1 words');
+      expect(content).toContain('**1** words');
       expect(content).toContain('[[posit]]');
       expect(content).not.toContain('[[deleted]]');
     } finally {
@@ -121,7 +121,7 @@ describe('regenerateWordIndex', () => {
       await regenerateWordIndex(config);
       const content = await readIndex(vaultPath);
 
-      const learningSection = content.split('## Learning')[1];
+      const learningSection = content.split('## 🌱 Learning')[1];
       const alphaPos = learningSection.indexOf('[[alpha]]');
       const mellowPos = learningSection.indexOf('[[mellow]]');
       const zealPos = learningSection.indexOf('[[zeal]]');
@@ -142,9 +142,9 @@ describe('regenerateWordIndex', () => {
       await regenerateWordIndex(config);
       const content = await readIndex(vaultPath);
 
-      expect(content).toContain('2 words');
-      expect(content).toContain('2 learning');
-      expect(content).toContain('## Learning (2)');
+      expect(content).toContain('**2** words');
+      expect(content).toContain('**2** learning');
+      expect(content).toContain('## 🌱 Learning (2)');
       expect(content).toContain('[[orphan]]');
       expect(content).toContain('[[untracked]]');
     } finally {
@@ -152,20 +152,22 @@ describe('regenerateWordIndex', () => {
     }
   });
 
-  it('index.md is not counted as a word', async () => {
+  it('__index__.md is written to vault root, not words folder', async () => {
     const { vaultPath, config, cleanup } = await makeVault();
     try {
       await writeStore(vaultPath, { version: 1, words: {} });
       await writeWordPage(vaultPath, 'posit');
-      // Pre-existing index.md should not appear as a word
-      await writeFile(join(vaultPath, 'Words', 'index.md'), '> old index', 'utf8');
 
       await regenerateWordIndex(config);
-      const content = await readIndex(vaultPath);
 
-      expect(content).toContain('1 words');
+      // Should exist at vault root
+      const content = await readFile(join(vaultPath, '__index__.md'), 'utf8');
       expect(content).toContain('[[posit]]');
-      expect(content).not.toContain('[[index]]');
+
+      // Should NOT exist in words folder
+      let wordsIndexExists = true;
+      try { await readFile(join(vaultPath, 'Words', '__index__.md'), 'utf8'); } catch { wordsIndexExists = false; }
+      expect(wordsIndexExists).toBe(false);
     } finally {
       await cleanup();
     }
@@ -192,7 +194,7 @@ describe('regenerateWordIndex', () => {
       await regenerateWordIndex(config);
       const content = await readIndex(vaultPath);
 
-      expect(content).toContain('2 due today');
+      expect(content).toContain('**2** due today');
     } finally {
       await cleanup();
     }
@@ -213,9 +215,9 @@ describe('regenerateWordIndex', () => {
       await regenerateWordIndex(config);
       const content = await readIndex(vaultPath);
 
-      expect(content).toContain('## Mastered (1)');
-      expect(content).not.toContain('## Reviewing');
-      expect(content).not.toContain('## Learning');
+      expect(content).toContain('## ✅ Mastered (1)');
+      expect(content).not.toContain('## 🔄 Reviewing');
+      expect(content).not.toContain('## 🌱 Learning');
     } finally {
       await cleanup();
     }

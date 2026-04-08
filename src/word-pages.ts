@@ -4,8 +4,7 @@ import path from 'node:path';
 const WORD_PAGE_HEAD_BYTES = 400;
 
 export function isWordPageFilename(fileName: string): boolean {
-  return fileName.endsWith('.md') && !fileName.startsWith('_') && !fileName.startsWith('.')
-    && fileName.toLowerCase() !== 'index.md';
+  return fileName.endsWith('.md') && !fileName.startsWith('_') && !fileName.startsWith('.');
 }
 
 async function readFileHead(filePath: string, maxBytes: number): Promise<string> {
