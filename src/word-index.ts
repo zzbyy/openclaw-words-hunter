@@ -23,7 +23,9 @@ export async function regenerateWordIndex(config: VaultConfig): Promise<void> {
   let existingFiles: Set<string>;
   try {
     const files = await fs.readdir(wordsDir);
-    existingFiles = new Set(files.filter(f => f.endsWith('.md')).map(f => f.toLowerCase()));
+    existingFiles = new Set(
+      files.filter(f => f.endsWith('.md') && f.toLowerCase() !== 'index.md').map(f => f.toLowerCase()),
+    );
   } catch {
     existingFiles = new Set();
   }
@@ -43,6 +45,15 @@ export async function regenerateWordIndex(config: VaultConfig): Promise<void> {
     else learning.push(display);
 
     if (isDue(entry, today)) dueCount++;
+  }
+
+  // Second pass: words with .md pages but no mastery entry (captured by app, not yet imported)
+  const trackedWords = new Set(Object.keys(store.words));
+  for (const file of existingFiles) {
+    const stem = file.replace(/\.md$/, '');
+    if (!trackedWords.has(stem)) {
+      learning.push(stem);
+    }
   }
 
   // Sort each group alphabetically

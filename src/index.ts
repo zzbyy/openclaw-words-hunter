@@ -33,6 +33,7 @@ import { createWord } from './tools/create-word.js';
 import { updateWordMeta } from './tools/update-word-meta.js';
 import { startWatcher } from './watcher.js';
 import { isWeeklyRecapDue, isDailyReviewDue, resolveRecapChannel } from './notifications.js';
+import { regenerateWordIndex } from './word-index.js';
 
 /** Wrap any ToolResult into the AgentToolResult format OpenClaw expects. */
 function toAgentResult(result: ToolResult<unknown>): { content: { type: 'text'; text: string }[]; details: unknown } {
@@ -119,6 +120,8 @@ export default definePluginEntry({
       if (imported.length > 0) {
         api.logger.info(`[words-hunter] imported ${imported.length} untracked word(s): ${imported.join(', ')}`);
       }
+      // Regenerate word index on startup (catches up with app-side changes)
+      try { await regenerateWordIndex(result.data); } catch { /* best-effort */ }
     });
 
     // --- Tool registration ---

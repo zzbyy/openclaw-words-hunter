@@ -131,4 +131,93 @@ describe('regenerateWordIndex', () => {
       await cleanup();
     }
   });
+
+  it('words with .md pages but no mastery entry appear as learning', async () => {
+    const { vaultPath, config, cleanup } = await makeVault();
+    try {
+      await writeStore(vaultPath, { version: 1, words: {} });
+      await writeWordPage(vaultPath, 'untracked');
+      await writeWordPage(vaultPath, 'orphan');
+
+      await regenerateWordIndex(config);
+      const content = await readIndex(vaultPath);
+
+      expect(content).toContain('2 words');
+      expect(content).toContain('2 learning');
+      expect(content).toContain('## Learning (2)');
+      expect(content).toContain('[[orphan]]');
+      expect(content).toContain('[[untracked]]');
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it('index.md is not counted as a word', async () => {
+    const { vaultPath, config, cleanup } = await makeVault();
+    try {
+      await writeStore(vaultPath, { version: 1, words: {} });
+      await writeWordPage(vaultPath, 'posit');
+      // Pre-existing index.md should not appear as a word
+      await writeFile(join(vaultPath, 'Words', 'index.md'), '> old index', 'utf8');
+
+      await regenerateWordIndex(config);
+      const content = await readIndex(vaultPath);
+
+      expect(content).toContain('1 words');
+      expect(content).toContain('[[posit]]');
+      expect(content).not.toContain('[[index]]');
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it('due-today count reflects words with next_review <= today', async () => {
+    const { vaultPath, config, cleanup } = await makeVault();
+    try {
+      const today = new Date().toISOString().slice(0, 10);
+      const future = '2099-12-31';
+      const store: MasteryStore = {
+        version: 1,
+        words: {
+          due1:    { word: 'due1',    box: 1, status: 'learning',  score: 50, last_practiced: today, next_review: today,  sessions: 1, failures: [], best_sentences: [] },
+          due2:    { word: 'due2',    box: 2, status: 'learning',  score: 60, last_practiced: today, next_review: today,  sessions: 2, failures: [], best_sentences: [] },
+          notdue:  { word: 'notdue',  box: 4, status: 'mastered',  score: 90, last_practiced: today, next_review: future, sessions: 5, failures: [], best_sentences: [] },
+        },
+      };
+      await writeStore(vaultPath, store);
+      for (const word of Object.keys(store.words)) {
+        await writeWordPage(vaultPath, word);
+      }
+
+      await regenerateWordIndex(config);
+      const content = await readIndex(vaultPath);
+
+      expect(content).toContain('2 due today');
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it('sections with 0 words are omitted', async () => {
+    const { vaultPath, config, cleanup } = await makeVault();
+    try {
+      const store: MasteryStore = {
+        version: 1,
+        words: {
+          posit: { word: 'posit', box: 4, status: 'mastered', score: 90, last_practiced: '2026-03-29', next_review: '2026-04-12', sessions: 5, failures: [], best_sentences: [] },
+        },
+      };
+      await writeStore(vaultPath, store);
+      await writeWordPage(vaultPath, 'posit');
+
+      await regenerateWordIndex(config);
+      const content = await readIndex(vaultPath);
+
+      expect(content).toContain('## Mastered (1)');
+      expect(content).not.toContain('## Reviewing');
+      expect(content).not.toContain('## Learning');
+    } finally {
+      await cleanup();
+    }
+  });
 });
