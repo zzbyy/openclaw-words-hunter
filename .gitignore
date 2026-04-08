@@ -5,3 +5,4 @@ coverage/
 *.zip
 .env
 .env.*
+.planning/
