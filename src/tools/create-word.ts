@@ -128,6 +128,7 @@ export async function createWord(
         sessions: 0,
         failures: [],
         best_sentences: [],
+        created_at: today,
       };
       await writeMasteryStore(jsonPath, store);
     }

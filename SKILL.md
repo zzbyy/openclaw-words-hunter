@@ -278,7 +278,9 @@ your outgoing messages, not on messages you receive.
 
 `vault_summary` is called when the user asks about their word vault stats. Format:
 > You have **{total}** words: {mastered} mastered, {reviewing} reviewing, {learning} learning.
-> {due_today} due today. Last session: {last_session or 'never'}.
+> {due_today} due today. {added_today} added today. Last session: {last_session or 'never'}.
+>
+> Omit the "added today" line when `added_today` is 0.
 
 ### Adding words from chat
 
