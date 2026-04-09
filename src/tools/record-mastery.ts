@@ -7,6 +7,7 @@ import {
   withMasteryLock,
 } from '../vault.js';
 import { advance, todayString, MASTERY_THRESHOLD } from '../srs/scheduler.js';
+import { regenerateWordIndex } from '../word-index.js';
 
 export interface RecordMasteryInput {
   word: string;
@@ -97,6 +98,9 @@ export async function recordMastery(
   });
 
   if (!masteryOutcome.ok) return { ok: false, error: masteryOutcome.error };
+
+  // Regenerate word index (non-critical — swallow errors)
+  try { await regenerateWordIndex(config); } catch { /* index is best-effort */ }
 
   const { updatedEntry, graduated } = masteryOutcome;
   const { box, status, next_review } = updatedEntry;

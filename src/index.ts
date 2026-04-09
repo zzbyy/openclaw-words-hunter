@@ -14,7 +14,6 @@
  */
 
 import { definePluginEntry } from 'openclaw/plugin-sdk/plugin-entry';
-import { Type } from '@sinclair/typebox';
 import fs from 'node:fs/promises';
 import type { VaultConfig, ToolResult, PluginRuntime } from './types.js';
 import { emitPluginNotification } from './notify-utils.js';
@@ -33,6 +32,7 @@ import { createWord } from './tools/create-word.js';
 import { updateWordMeta } from './tools/update-word-meta.js';
 import { startWatcher } from './watcher.js';
 import { isWeeklyRecapDue, isDailyReviewDue, resolveRecapChannel } from './notifications.js';
+import { regenerateWordIndex } from './word-index.js';
 
 /** Wrap any ToolResult into the AgentToolResult format OpenClaw expects. */
 function toAgentResult(result: ToolResult<unknown>): { content: { type: 'text'; text: string }[]; details: unknown } {
@@ -109,17 +109,10 @@ export default definePluginEntry({
         return { ok: false as const, error: { message: 'Words directory not configured. Install the Words Hunter macOS app, or set vault_path in plugin config.' } };
       })();
 
-    // Fire one-time import when config loads
-    void configPromise.then(async (result) => {
-      if (!result.ok) {
-        api.logger.error(`[words-hunter] ${result.error.message}`);
-        return;
-      }
-      const { imported } = await importUntracked(result.data);
-      if (imported.length > 0) {
-        api.logger.info(`[words-hunter] imported ${imported.length} untracked word(s): ${imported.join(', ')}`);
-      }
-    });
+    // Log config errors eagerly (tools will also check on each call)
+    configPromise.then((result) => {
+      if (!result.ok) api.logger.error(`[words-hunter] ${result.error.message}`);
+    }).catch(() => {});
 
     // --- Tool registration ---
 
@@ -127,13 +120,11 @@ export default definePluginEntry({
       name: 'scan_vault',
       label: 'Scan Vault',
       description: "List words in the Words Hunter vault filtered by status. Use filter='due' for today's practice session, 'new' for unreviewed captures, or 'all' for everything.",
-      parameters: Type.Object({
-        filter: Type.Optional(Type.String({ description: "Filter: 'all' (default), 'due', or 'new'" })),
-      }),
-      async execute(_id, params) {
+      parameters: { type: 'object', properties: { filter: { type: 'string', description: "Filter: 'all' (default), 'due', or 'new'" } } },
+      async execute(_id: string, params: Record<string, unknown>) {
         const configResult = await configPromise;
         if (!configResult.ok) return toAgentResult({ ok: false, error: { code: 'VAULT_NOT_FOUND', message: configResult.error.message } }) as never;
-        const result = await scanVault(configResult.data, (params.filter ?? 'all') as 'all' | 'due' | 'new');
+        const result = await scanVault(configResult.data, ((params.filter as string) ?? 'all') as 'all' | 'due' | 'new');
         return toAgentResult(result) as never;
       },
     });
@@ -142,13 +133,11 @@ export default definePluginEntry({
       name: 'load_word',
       label: 'Load Word',
       description: 'Load a word page from the vault including its markdown content and mastery state. Returns the full .md content plus SRS data (box, score, next_review).',
-      parameters: Type.Object({
-        word: Type.String({ description: 'The word to load (case-insensitive, e.g. "posit")' }),
-      }),
-      async execute(_id, params) {
+      parameters: { type: 'object', properties: { word: { type: 'string', description: 'The word to load (case-insensitive, e.g. "posit")' } }, required: ['word'] },
+      async execute(_id: string, params: Record<string, unknown>) {
         const configResult = await configPromise;
         if (!configResult.ok) return toAgentResult({ ok: false, error: { code: 'VAULT_NOT_FOUND', message: configResult.error.message } }) as never;
-        const result = await loadWord(configResult.data, params.word);
+        const result = await loadWord(configResult.data, params.word as string);
         return toAgentResult(result) as never;
       },
     });
@@ -157,16 +146,11 @@ export default definePluginEntry({
       name: 'record_mastery',
       label: 'Record Mastery',
       description: 'Record a mastery practice session for a word. Advances or drops the Leitner SRS box (threshold: 85/100). Supply the best sentence the user produced.',
-      parameters: Type.Object({
-        word: Type.String({ description: 'The word practiced' }),
-        score: Type.Number({ description: 'Session score 0–100. ≥85 advances the box; <85 drops one box.' }),
-        best_sentence: Type.Optional(Type.String({ description: "User's best sentence demonstrating the word" })),
-        failure_note: Type.Optional(Type.String({ description: 'Brief note if the user struggled' })),
-      }),
-      async execute(_id, params) {
+      parameters: { type: 'object', properties: { word: { type: 'string', description: 'The word practiced' }, score: { type: 'number', description: 'Session score 0–100. ≥85 advances the box; <85 drops one box.' }, best_sentence: { type: 'string', description: "User's best sentence demonstrating the word" }, failure_note: { type: 'string', description: 'Brief note if the user struggled' } }, required: ['word', 'score'] },
+      async execute(_id: string, params: Record<string, unknown>) {
         const configResult = await configPromise;
         if (!configResult.ok) return toAgentResult({ ok: false, error: { code: 'VAULT_NOT_FOUND', message: configResult.error.message } }) as never;
-        const result = await recordMastery(configResult.data, params);
+        const result = await recordMastery(configResult.data, params as any);
         return toAgentResult(result) as never;
       },
     });
@@ -175,16 +159,11 @@ export default definePluginEntry({
       name: 'update_page',
       label: 'Update Page',
       description: "Write agent-generated content back to a word's .md page. Use for storing the best sentence after a session or writing a graduation section when the word reaches box 4+.",
-      parameters: Type.Object({
-        word: Type.String({ description: 'The word to update' }),
-        best_sentence: Type.Optional(Type.String({ description: 'Best sentence to store in the ## Best Sentences section' })),
-        graduation_sentence: Type.Optional(Type.String({ description: 'Memorable sentence for the ## Graduation section (box 4+ only)' })),
-        content_hash: Type.Optional(Type.String({ description: 'MD5 of page content at read time — prevents overwriting concurrent edits' })),
-      }),
-      async execute(_id, params) {
+      parameters: { type: 'object', properties: { word: { type: 'string', description: 'The word to update' }, best_sentence: { type: 'string', description: 'Best sentence to store in the ## Best Sentences section' }, graduation_sentence: { type: 'string', description: 'Memorable sentence for the ## Graduation section (box 4+ only)' }, content_hash: { type: 'string', description: 'MD5 of page content at read time — prevents overwriting concurrent edits' } }, required: ['word'] },
+      async execute(_id: string, params: Record<string, unknown>) {
         const configResult = await configPromise;
         if (!configResult.ok) return toAgentResult({ ok: false, error: { code: 'VAULT_NOT_FOUND', message: configResult.error.message } }) as never;
-        const result = await updatePage(configResult.data, params);
+        const result = await updatePage(configResult.data, params as any);
         return toAgentResult(result) as never;
       },
     });
@@ -193,15 +172,11 @@ export default definePluginEntry({
       name: 'record_sighting',
       label: 'Record Sighting',
       description: "Append a sighting entry to a word's ## Sightings section. Call this when the user uses a captured word in a message.",
-      parameters: Type.Object({
-        word: Type.String({ description: 'The word that was sighted' }),
-        sentence: Type.String({ description: 'The full sentence in which the word appeared' }),
-        channel: Type.Optional(Type.String({ description: 'Channel label, e.g. "Telegram — work chat"' })),
-      }),
-      async execute(_id, params) {
+      parameters: { type: 'object', properties: { word: { type: 'string', description: 'The word that was sighted' }, sentence: { type: 'string', description: 'The full sentence in which the word appeared' }, channel: { type: 'string', description: 'Channel label, e.g. "Telegram — work chat"' } }, required: ['word', 'sentence'] },
+      async execute(_id: string, params: Record<string, unknown>) {
         const configResult = await configPromise;
         if (!configResult.ok) return toAgentResult({ ok: false, error: { code: 'VAULT_NOT_FOUND', message: configResult.error.message } }) as never;
-        const result = await recordSighting(configResult.data, params);
+        const result = await recordSighting(configResult.data, params as any);
         return toAgentResult(result) as never;
       },
     });
@@ -210,13 +185,11 @@ export default definePluginEntry({
       name: 'create_word',
       label: 'Create Word',
       description: "Create a new word page in the Words Hunter vault and register it for study. Use this when the user wants to manually add a word they didn't capture via the macOS app.",
-      parameters: Type.Object({
-        word: Type.String({ description: 'The word to add (e.g. "ephemeral")' }),
-      }),
-      async execute(_id, params) {
+      parameters: { type: 'object', properties: { word: { type: 'string', description: 'The word to add (e.g. "ephemeral")' } }, required: ['word'] },
+      async execute(_id: string, params: Record<string, unknown>) {
         const configResult = await configPromise;
         if (!configResult.ok) return toAgentResult({ ok: false, error: { code: 'VAULT_NOT_FOUND', message: configResult.error.message } }) as never;
-        const result = await createWord(configResult.data, params);
+        const result = await createWord(configResult.data, params as any);
         return toAgentResult(result) as never;
       },
     });
@@ -225,15 +198,11 @@ export default definePluginEntry({
       name: 'update_word_meta',
       label: 'Update Word Meta',
       description: "Update per-word coaching metadata without affecting SRS state. Coaching is on by default for all words. Use coaching_mode 'silent' to suppress inline notifications for noisy words. Does not change box, score, or next_review.",
-      parameters: Type.Object({
-        word: Type.String(),
-        coaching_mode: Type.Optional(Type.Union([Type.Literal('silent'), Type.Literal('inline')])),
-        synonyms: Type.Optional(Type.Array(Type.String(), { maxItems: 5 })),
-      }),
-      async execute(_id, input) {
+      parameters: { type: 'object', properties: { word: { type: 'string' }, coaching_mode: { type: 'string', enum: ['silent', 'inline'] }, synonyms: { type: 'array', items: { type: 'string' }, maxItems: 5 } }, required: ['word'] },
+      async execute(_id: string, input: Record<string, unknown>) {
         const configResult = await configPromise;
         if (!configResult.ok) return toAgentResult({ ok: false, error: { code: 'VAULT_NOT_FOUND', message: configResult.error.message } }) as never;
-        return toAgentResult(await updateWordMeta(configResult.data, input)) as never;
+        return toAgentResult(await updateWordMeta(configResult.data, input as any)) as never;
       },
     });
 
@@ -241,7 +210,7 @@ export default definePluginEntry({
       name: 'vault_summary',
       label: 'Vault Summary',
       description: 'Get aggregate stats for the Words Hunter vault: total words, mastery breakdown (mastered/reviewing/learning), due count, and last session date.',
-      parameters: Type.Object({}),
+      parameters: { type: 'object', properties: {} },
       async execute() {
         const configResult = await configPromise;
         if (!configResult.ok) return toAgentResult({ ok: false, error: { code: 'VAULT_NOT_FOUND', message: configResult.error.message } }) as never;
@@ -254,10 +223,8 @@ export default definePluginEntry({
       name: 'prepare_review',
       label: 'Prepare Daily Review',
       description: 'Prepare bucketed vocabulary data for a daily review session. Returns words grouped into: new arrivals (captured today), used today (with sighting sentences for quality evaluation), due but not used (for practice), and dormant count.',
-      parameters: Type.Object({
-        date: Type.Optional(Type.String({ description: 'Target date YYYY-MM-DD. Defaults to today.' })),
-      }),
-      async execute(_id, params) {
+      parameters: { type: 'object', properties: { date: { type: 'string', description: 'Target date YYYY-MM-DD. Defaults to today.' } } },
+      async execute(_id: string, params: Record<string, unknown>) {
         const configResult = await configPromise;
         if (!configResult.ok) return toAgentResult({ ok: false, error: { code: 'VAULT_NOT_FOUND', message: configResult.error.message } }) as never;
         return toAgentResult(await prepareReview(configResult.data, (params as { date?: string }).date)) as never;
@@ -278,7 +245,8 @@ export default definePluginEntry({
       );
       if (addMatch) {
         const raw = addMatch[1].trim();
-        const words = raw.split(/[\s,]+/).map(w => w.toLowerCase().trim()).filter(Boolean);
+        const STOP_WORDS = new Set(['and', 'or', 'the', 'a', 'an', 'to', 'of', 'in', 'for', 'with']);
+        const words = raw.split(/[\s,]+/).map((w: string) => w.toLowerCase().trim()).filter((w: string) => w && !STOP_WORDS.has(w));
         for (const word of words) {
           const result = await createWord(configResult.data, { word });
           if (result.ok) {
@@ -295,7 +263,7 @@ export default definePluginEntry({
 
       await onOutgoingMessage(configResult.data, event.content, ctx.channelId);
       // Also persist primary_channel for nudge routing
-      void persistPrimaryChannel(configResult.data, ctx.channelId);
+      persistPrimaryChannel(configResult.data, ctx.channelId).catch(() => {});
     });
 
     // --- Background crons via gateway_start ---
@@ -310,6 +278,15 @@ export default definePluginEntry({
       if (!configResult.ok) return;
       const config = configResult.data;
 
+      // Import untracked word pages + regenerate index (gateway-only, not CLI)
+      try {
+        const { imported } = await importUntracked(config);
+        if (imported.length > 0) {
+          api.logger.info(`[words-hunter] imported ${imported.length} untracked word(s): ${imported.join(', ')}`);
+        }
+      } catch { /* best-effort */ }
+      regenerateWordIndex(config).catch(() => {});
+
       if (nudgeInterval) { clearInterval(nudgeInterval); nudgeInterval = null; }
       if (weeklyInterval) { clearInterval(weeklyInterval); weeklyInterval = null; }
       if (stopWatcherFn) { stopWatcherFn(); stopWatcherFn = null; }
@@ -321,23 +298,23 @@ export default definePluginEntry({
         },
       });
 
-      void fireOverdueNudges(config, api);
-      void fireWeeklyRecapIfDue(config, api, explicitRecapChannel);
-      void fireDailyReviewIfDue(config, api, explicitRecapChannel);
+      fireOverdueNudges(config, api).catch(() => {});
+      fireWeeklyRecapIfDue(config, api, explicitRecapChannel).catch(() => {});
+      fireDailyReviewIfDue(config, api, explicitRecapChannel).catch(() => {});
 
       // Nudge check every 15 minutes
       nudgeInterval = setInterval(() => {
-        void fireOverdueNudges(config, api);
+        fireOverdueNudges(config, api).catch(() => {});
       }, 15 * 60 * 1000);
 
       // Weekly recap: check every 15 minutes and fire once per weekly slot.
       weeklyInterval = setInterval(() => {
-        void fireWeeklyRecapIfDue(config, api, explicitRecapChannel);
+        fireWeeklyRecapIfDue(config, api, explicitRecapChannel).catch(() => {});
       }, 15 * 60 * 1000);
 
       // Daily review: check every 15 minutes, fire once per day at 9pm.
       dailyReviewInterval = setInterval(() => {
-        void fireDailyReviewIfDue(config, api, explicitRecapChannel);
+        fireDailyReviewIfDue(config, api, explicitRecapChannel).catch(() => {});
       }, 15 * 60 * 1000);
     });
 

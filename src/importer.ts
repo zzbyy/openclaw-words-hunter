@@ -52,6 +52,7 @@ export async function importUntracked(config: VaultConfig): Promise<{ imported: 
         sessions: 0,
         failures: [],
         best_sentences: [],
+        created_at: new Date().toISOString(),
       };
       store.words[word] = entry;
       imported.push(word);

@@ -3,7 +3,20 @@
   "name": "Words Hunter",
   "version": "1.2.0",
   "description": "Master vocabulary captured by Words Hunter via conversational AI sessions.",
-  "entrypoint": "dist/index.js",
+  "skills": ["."],
+  "contracts": {
+    "tools": [
+      "scan_vault",
+      "load_word",
+      "record_mastery",
+      "update_page",
+      "record_sighting",
+      "create_word",
+      "update_word_meta",
+      "vault_summary",
+      "prepare_review"
+    ]
+  },
   "configSchema": {
     "type": "object",
     "additionalProperties": false,

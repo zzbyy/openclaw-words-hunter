@@ -1,8 +1,5 @@
-import fs from 'node:fs/promises';
-import path from 'node:path';
 import { ToolResult, VaultConfig, SightingEntry, ReviewData, ok } from '../types.js';
 import { readMasteryStore, masteryJsonPath, readSightingsStore, sightingsJsonPath } from '../vault.js';
-import { wordsFolderPath } from '../vault.js';
 import { todayString } from '../srs/scheduler.js';
 
 /**
@@ -49,12 +46,11 @@ export async function prepareReview(
   }
 
   const store = storeResult.data;
-  const wordsDir = wordsFolderPath(config);
   const entries = Object.values(store.words);
 
   // Classify each word
-  const newArrivals: Array<{ word: string; short_definition?: string; content: string }> = [];
-  const usedToday: Array<{ word: string; box: number; short_definition?: string; sightings: SightingEntry[]; content: string }> = [];
+  const newArrivals: Array<{ word: string; short_definition?: string }> = [];
+  const usedToday: Array<{ word: string; box: number; short_definition?: string; sightings: SightingEntry[] }> = [];
   const dueNotUsed: Array<{ word: string; box: number; status: string; short_definition?: string; days_overdue: number; sessions: number }> = [];
   let dormantCount = 0;
   let totalSightings = 0;
@@ -68,26 +64,18 @@ export async function prepareReview(
     const isDue = entry.next_review <= targetDate;
 
     if (hasSightings) {
-      // Bucket 2: used today — read .md for definitions
-      const mdPath = path.join(wordsDir, `${entry.word}.md`);
-      let content = '';
-      try { content = await fs.readFile(mdPath, 'utf8'); } catch { /* page missing */ }
+      // Bucket 2: used today — agent can load_word() for full page
       usedToday.push({
         word: entry.word,
         box: entry.box,
         short_definition: entry.short_definition,
         sightings: wordSightings,
-        content,
       });
     } else if (isNew) {
-      // Bucket 1: new arrivals — read .md for definitions
-      const mdPath = path.join(wordsDir, `${entry.word}.md`);
-      let content = '';
-      try { content = await fs.readFile(mdPath, 'utf8'); } catch { /* page missing */ }
+      // Bucket 1: new arrivals — agent can load_word() for full page
       newArrivals.push({
         word: entry.word,
         short_definition: entry.short_definition,
-        content,
       });
     } else if (isDue) {
       // Bucket 3: due but not used

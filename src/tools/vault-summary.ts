@@ -35,6 +35,7 @@ export async function vaultSummary(
   let reviewing = 0;
   let learning = 0;
   let due_today = 0;
+  let added_today = 0;
   let lastSession: string | null = null;
 
   for (const e of entries) {
@@ -43,6 +44,7 @@ export async function vaultSummary(
     else learning++;
 
     if (isDue(e, today)) due_today++;
+    if (e.created_at?.startsWith(today)) added_today++;
 
     if (e.last_practiced) {
       if (!lastSession || e.last_practiced > lastSession) {
@@ -57,6 +59,7 @@ export async function vaultSummary(
     reviewing,
     learning,
     due_today,
+    added_today,
     last_session: lastSession,
   });
 }

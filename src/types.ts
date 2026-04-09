@@ -61,6 +61,7 @@ export interface WordEntry {
   sessions: number;
   failures: string[];
   best_sentences: BestSentence[];
+  created_at?: string;       // ISO 8601 timestamp — absent for words created before this field existed
   coaching_mode?: 'silent' | 'inline';
   synonyms?: string[];
   short_definition?: string;
@@ -106,8 +107,8 @@ export interface SightingEntry {
 
 export interface ReviewData {
   review_date: string;
-  new_arrivals: Array<{ word: string; short_definition?: string; content: string }>;
-  used_today: Array<{ word: string; box: number; short_definition?: string; sightings: SightingEntry[]; content: string }>;
+  new_arrivals: Array<{ word: string; short_definition?: string }>;
+  used_today: Array<{ word: string; box: number; short_definition?: string; sightings: SightingEntry[] }>;
   due_not_used: Array<{ word: string; box: number; status: string; short_definition?: string; days_overdue: number; sessions: number }>;
   dormant_count: number;
   total_words: number;
@@ -151,6 +152,7 @@ export interface VaultSummary {
   reviewing: number;
   learning: number;
   due_today: number;
+  added_today: number;
   last_session: string | null;  // YYYY-MM-DD or null if never
 }
 

@@ -7,6 +7,7 @@ import { todayString } from '../srs/scheduler.js';
 import { cambridgeLookup, CambridgeBlockedError } from '../cambridge-lookup.js';
 import { fillWordPage } from '../fill-word-page.js';
 import { writeTextFileAtomic } from '../io-utils.js';
+import { regenerateWordIndex } from '../word-index.js';
 
 // Template variable reference (matches WordPageCreator.swift):
 //   Creation-time (filled on page creation):  {{word}}, {{date}}
@@ -127,6 +128,7 @@ export async function createWord(
         sessions: 0,
         failures: [],
         best_sentences: [],
+        created_at: new Date().toISOString(),
       };
       await writeMasteryStore(jsonPath, store);
     }
@@ -147,6 +149,9 @@ export async function createWord(
       }
     });
   }
+
+  // Regenerate word index (non-critical — swallow errors)
+  try { await regenerateWordIndex(config); } catch { /* index is best-effort */ }
 
   return ok({ word, path: filePath, lookup });
 }
