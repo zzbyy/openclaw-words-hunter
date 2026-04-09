@@ -246,7 +246,7 @@ export default definePluginEntry({
       if (addMatch) {
         const raw = addMatch[1].trim();
         const STOP_WORDS = new Set(['and', 'or', 'the', 'a', 'an', 'to', 'of', 'in', 'for', 'with']);
-        const words = raw.split(/[\s,]+/).map(w => w.toLowerCase().trim()).filter(w => w && !STOP_WORDS.has(w));
+        const words = raw.split(/[\s,]+/).map((w: string) => w.toLowerCase().trim()).filter((w: string) => w && !STOP_WORDS.has(w));
         for (const word of words) {
           const result = await createWord(configResult.data, { word });
           if (result.ok) {
