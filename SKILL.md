@@ -1,3 +1,11 @@
+---
+name: words-hunter
+description: "Vocabulary mastery through conversation. Triggers on: 'let's review words', 'vocab time', 'daily vocab review', 'show my words', 'add word X'. Uses spaced repetition (Leitner boxes) with a 40-point scoring rubric. NOT for: general word definitions outside the vault, grammar-only questions, or unrelated 'review' requests."
+metadata:
+  openclaw:
+    emoji: "📚"
+---
+
 # Words Hunter Mastery Skill
 
 Vocabulary mastery through natural conversation. This skill runs a practice session
