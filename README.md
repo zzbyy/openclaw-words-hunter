@@ -5,82 +5,6 @@
 
 Vocabulary mastery inside your AI conversations. Words Hunter connects your [Obsidian](https://obsidian.md) vocab notes to [OpenClaw](https://openclaw.ai) so you can practice, track, and review the words you're studying — without leaving the chat.
 
----
-
-## How it works
-
-When you encounter a word worth learning, the [Words Hunter macOS app](https://github.com/zzbyy/words-hunter) captures it into your Obsidian vault. Each word gets a `.md` note with Cambridge Dictionary definitions, pronunciation, example sentences, and a spaced-repetition schedule.
-
-This plugin bridges that vault to your OpenClaw AI agent:
-
-1. **Practice** — start a session for today's due words. The agent quizzes you, scores your sentences, and advances your SRS schedule.
-2. **Silent sighting detection** — every outgoing message is scanned for your vocab words (including inflected forms like "posited" for "posit"). Sightings are logged silently to `.wordshunter/sightings.json` — no interruptions during conversation.
-3. **Daily vocab review** — a dedicated review session evaluates how you used words in real conversation, introduces new captures, and runs practice for due words.
-
----
-
-## Features
-
-### Spaced repetition (SRS)
-
-Words move through a 5-box Leitner system. Practice threshold is **85/100**:
-
-- Score ≥ 85 → box advances, next review pushed out
-- Score < 85 → box drops, scheduled sooner
-
-Each practice session scores your original sentences across meaning (15pts), register (10pts), collocation (10pts), and grammar (5pts), scaled to 0–100.
-
-### Sighting detection
-
-The plugin monitors your outgoing messages for captured vocab words using a **trie-based matcher with inflection-aware forward expansion**. "posit" catches "posits", "posited", "positing" — but "deposit" does not match.
-
-Sightings are stored in `.wordshunter/sightings.json` as event-based records with minute-precision timestamps. Word pages are not modified. Detection is silent — no footnotes, no interruptions.
-
-Duplicate detection: if the same sentence is sent twice, it increments a count on the existing event. Auto-prune: entries older than 90 days are removed on write.
-
-### Daily vocab review
-
-Triggered by vocab-specific phrases like "daily vocab review" or "review my words." The review walks through three steps:
-
-1. **Usage review** — evaluates sighting sentences against word definitions. Correct usage advances SRS; misuse drops it.
-2. **New arrivals** — introduces words captured today with definitions and examples.
-3. **Practice** — offers to practice words that are due for SRS review.
-
-### Weekly recap
-
-Every Sunday at 9am, a notification prompts the user to start a weekly vocab review with aggregated stats.
-
-Daily review notification fires at 9pm.
-
----
-
-## Commands
-
-### Session commands
-
-| Phrase                   | What it does                                                   |
-| ------------------------ | -------------------------------------------------------------- |
-| `let's review words`     | Start a practice session for today's due words                 |
-| `what words are due?`    | Same as above                                                  |
-| `daily vocab review`     | Start a daily review (usage evaluation + new arrivals + practice) |
-| `review my words`        | Same as daily vocab review                                     |
-| `show my words`          | Vault summary: total, mastered, reviewing, learning, due today |
-
-All trigger phrases must contain a vocab domain keyword (`word(s)`, `vocab`, `vocabulary`, `word vault`, `hunt`). Generic phrases like "daily review" or "what's due?" are not treated as vocab triggers.
-
-### Capturing words
-
-| Phrase                | What it does                                       |
-| --------------------- | -------------------------------------------------- |
-| `add word <word>`     | Capture a word from chat (handled by message hook) |
-| `add words <w1> <w2>` | Capture multiple words at once                     |
-| `hunt <word>`         | Same as `add word`                                 |
-| `vocab add <word>`    | Same as `add word`                                 |
-
-All patterns create the `.md` note and register the word at box 1 due today. If the word already exists, it's skipped. More natural phrasing like "I want to learn the word ephemeral" is handled by the agent via the `create_word` tool.
-
----
-
 ## Install
 
 **One command:**
@@ -97,11 +21,11 @@ openclaw plugins install /path/to/words-hunter-openclaw.tgz
 
 Add `words-hunter` to `plugins.allow` in your OpenClaw config if you use an allowlist.
 
----
+### Update
 
-## Configuration
+Download the new release tarball and re-run the install command. Archive installs are not tracked by `openclaw plugins update`.
 
-Set these in OpenClaw's plugin config UI or directly in `openclaw.plugin.json`:
+### Configuration
 
 | Key             | Default               | Description                                                                                                                                |
 | --------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -110,7 +34,120 @@ Set these in OpenClaw's plugin config UI or directly in `openclaw.plugin.json`:
 
 ---
 
-## Data storage
+## Getting started
+
+Once installed, open any OpenClaw conversation and try these steps. The whole thing takes about 2 minutes.
+
+### 1. Add your first word
+
+Just tell the agent:
+
+> I want to learn the word "precarious"
+
+The plugin creates a word page in your vault, looks it up on Cambridge Dictionary, and fills in definitions, pronunciation, and examples. You can also batch-add:
+
+> add words futile and ominous
+
+### 2. Practice it
+
+> let's review words
+
+The agent picks a due word, shows you the definition, and asks you to use it in a sentence. Write one:
+
+> The company's precarious financial situation forced the board to consider drastic measures
+
+The agent scores your sentence on meaning, register, collocation, and grammar (out of 40, scaled to 100). Score 85+ and the word advances to the next SRS box. Below 85, it drops back for more practice.
+
+### 3. Check your progress
+
+> show my words
+
+You'll see a summary: total words, how many are mastered/reviewing/learning, and how many are due today.
+
+### 4. End-of-day review
+
+> daily vocab review
+
+The agent reviews how you used vocab words in real conversation today, introduces any new captures, and offers to practice due words. This is the core daily loop — capture words throughout the day, review them in the evening.
+
+### That's it
+
+The plugin works in the background from here. Words you've captured are silently detected in your messages (sightings are logged automatically). The SRS schedule spaces out reviews so you see words right before you'd forget them.
+
+**Tips:**
+- You don't need the macOS app — `add word <word>` works directly in chat
+- Words are detected even in inflected forms: "posited", "positing", "posits" all count as sightings for "posit"
+- A 9pm daily notification reminds you to review; Sunday 9am sends a weekly recap
+- If the `> [!mastery]` callouts in Obsidian look wrong, run `npm run repair -- --vault /path/to/vault` to regenerate them
+
+---
+
+## How it works
+
+When you encounter a word worth learning, the [Words Hunter macOS app](https://github.com/zzbyy/words-hunter) captures it into your Obsidian vault. Each word gets a `.md` note with Cambridge Dictionary definitions, pronunciation, example sentences, and a spaced-repetition schedule. This plugin bridges that vault to your OpenClaw AI agent.
+
+### Practice sessions
+
+The agent quizzes you on due words, scores your original sentences across meaning (15pts), register (10pts), collocation (10pts), and grammar (5pts), scaled to 0–100. Words move through a 5-box Leitner system:
+
+- Score ≥ 85 → box advances, next review pushed out (1d → 3d → 7d → 14d → 30d)
+- Score < 85 → box drops, scheduled sooner
+
+### Sighting detection
+
+Every outgoing message is scanned for your vocab words using a trie-based matcher with inflection-aware expansion. "posit" catches "posits", "posited", "positing" — but "deposit" does not match. Sightings are logged silently to `.wordshunter/sightings.json` — no interruptions during conversation.
+
+Duplicate detection: if the same sentence is sent twice, it increments a count on the existing event. Auto-prune: entries older than 90 days are removed on write.
+
+### Daily vocab review
+
+Triggered by vocab-specific phrases like "daily vocab review" or "review my words." The review walks through three steps:
+
+1. **Usage review** — evaluates sighting sentences against word definitions. Correct usage advances SRS; misuse drops it.
+2. **New arrivals** — introduces words captured today with definitions and examples.
+3. **Practice** — offers to practice words that are due for SRS review.
+
+A 9pm notification reminds you daily; a Sunday 9am notification sends a weekly recap.
+
+### Commands
+
+#### Session commands
+
+| Phrase                   | What it does                                                   |
+| ------------------------ | -------------------------------------------------------------- |
+| `let's review words`     | Start a practice session for today's due words                 |
+| `what words are due?`    | Same as above                                                  |
+| `daily vocab review`     | Start a daily review (usage evaluation + new arrivals + practice) |
+| `review my words`        | Same as daily vocab review                                     |
+| `show my words`          | Vault summary: total, mastered, reviewing, learning, due today |
+
+All trigger phrases must contain a vocab domain keyword (`word(s)`, `vocab`, `vocabulary`, `word vault`, `hunt`). Generic phrases like "daily review" or "what's due?" are not treated as vocab triggers.
+
+#### Capturing words
+
+| Phrase                | What it does                                       |
+| --------------------- | -------------------------------------------------- |
+| `add word <word>`     | Capture a word from chat (handled by message hook) |
+| `add words <w1> <w2>` | Capture multiple words at once                     |
+| `hunt <word>`         | Same as `add word`                                 |
+| `vocab add <word>`    | Same as `add word`                                 |
+
+All patterns create the `.md` note and register the word at box 1 due today. If the word already exists, it's skipped. More natural phrasing like "I want to learn the word ephemeral" is handled by the agent via the `create_word` tool.
+
+### Privacy
+
+The sighting hook scans your **outgoing messages locally on your machine**. It uses a trie-based word matcher against your vocab list.
+
+- Nothing is sent to external servers for sighting detection.
+- Matched words are stored in `.wordshunter/sightings.json` inside your vault.
+- Word `.md` pages are not modified by sighting detection.
+- The hook fires on your outgoing messages only — not on messages you receive or the agent's replies.
+
+---
+
+## Technical design
+
+### Data storage
 
 All data lives inside your Obsidian vault under `.wordshunter/`:
 
@@ -123,7 +160,7 @@ All data lives inside your Obsidian vault under `.wordshunter/`:
 
 Each word also has a `.md` note in your words folder (default: `Words/`) with definitions, best sentences, and the `> [!mastery]` callout showing current box and schedule.
 
-### Sightings schema (v2)
+#### Sightings schema (v2)
 
 ```json
 {
@@ -146,34 +183,7 @@ Each word also has a `.md` note in your words folder (default: `Words/`) with de
 
 One event per message. `words` maps each detected word to its sentence extract. `count` tracks duplicate sends. Day-keyed for fast date lookups.
 
----
-
-## Development
-
-```bash
-git clone https://github.com/zzbyy/openclaw-words-hunter.git
-cd openclaw-words-hunter
-npm install && npm run build
-openclaw plugins install -l .
-```
-
-Run tests:
-
-```bash
-npm test
-```
-
-### Repair CLI
-
-If the `> [!mastery]` callouts in your word notes drift out of sync with `mastery.json` (e.g. after manual edits), regenerate them:
-
-```bash
-npm run repair -- --vault /absolute/path/to/your/vault
-```
-
----
-
-## Architecture
+### Architecture
 
 ```
 src/
@@ -213,7 +223,7 @@ src/
     repair.ts             Repair CLI — regenerate callouts from mastery.json
 ```
 
-### Sighting detection flow
+#### Sighting detection flow
 
 ```
 User sends message
@@ -227,7 +237,7 @@ User sends message
 
 The trie is built from `mastery.json` at startup and rebuilt when the file changes (mtime check). Each word is expanded into its inflected forms (e.g., "posit" → ["posit", "posits", "posited", "positing"]) and inserted into the trie. Matching is O(message_length), independent of vocabulary size.
 
-### Daily review flow
+#### Daily review flow
 
 ```
 User says "daily vocab review"
@@ -238,22 +248,28 @@ User says "daily vocab review"
   → calls record_mastery for each evaluated word
 ```
 
----
+### Development
 
-## Privacy
+```bash
+git clone https://github.com/zzbyy/openclaw-words-hunter.git
+cd openclaw-words-hunter
+npm install && npm run build
+openclaw plugins install -l .
+```
 
-The sighting hook scans your **outgoing messages locally on your machine**. It uses a trie-based word matcher against your vocab list.
+Run tests:
 
-- Nothing is sent to external servers for sighting detection.
-- Matched words are stored in `.wordshunter/sightings.json` inside your vault.
-- Word `.md` pages are not modified by sighting detection.
-- The hook fires on your outgoing messages only — not on messages you receive or the agent's replies.
+```bash
+npm test
+```
 
----
+#### Repair CLI
 
-## Update
+If the `> [!mastery]` callouts in your word notes drift out of sync with `mastery.json` (e.g. after manual edits), regenerate them:
 
-Download the new release tarball and re-run the install command. Archive installs are not tracked by `openclaw plugins update`.
+```bash
+npm run repair -- --vault /absolute/path/to/your/vault
+```
 
 ---
 
