@@ -43,7 +43,7 @@
   },
   "scripts": {
     "prepack": "npm run build",
-    "postinstall": "node dist/cli/postinstall.js",
+    "postinstall": "node -e \"try{require('./dist/cli/postinstall.js')}catch{}\"",
     "build": "tsc",
     "repair": "node dist/cli/repair.js",
     "test": "vitest run",
