@@ -61,7 +61,7 @@ export interface WordEntry {
   sessions: number;
   failures: string[];
   best_sentences: BestSentence[];
-  created_at?: string;       // YYYY-MM-DD — absent for words created before this field existed
+  created_at?: string;       // ISO 8601 timestamp — absent for words created before this field existed
   coaching_mode?: 'silent' | 'inline';
   synonyms?: string[];
   short_definition?: string;

@@ -37,10 +37,10 @@ describe('vault_summary', () => {
       const store: MasteryStore = {
         version: 1,
         words: {
-          posit:     { word: 'posit',     box: 4, status: 'mastered',  score: 90, last_practiced: '2026-03-29', next_review: '2026-04-12', sessions: 5, failures: [], best_sentences: [], created_at: '2026-03-20' },
-          ephemeral: { word: 'ephemeral', box: 3, status: 'reviewing', score: 75, last_practiced: '2026-03-28', next_review: '2026-04-05', sessions: 3, failures: [], best_sentences: [], created_at: '2026-03-25' },
-          liminal:   { word: 'liminal',   box: 1, status: 'learning',  score: 55, last_practiced: '2026-03-27', next_review: TODAY,        sessions: 1, failures: [], best_sentences: [], created_at: '2026-03-27' },
-          nascent:   { word: 'nascent',   box: 2, status: 'learning',  score: 0,  last_practiced: '',           next_review: TODAY,        sessions: 0, failures: [], best_sentences: [], created_at: TODAY },
+          posit:     { word: 'posit',     box: 4, status: 'mastered',  score: 90, last_practiced: '2026-03-29', next_review: '2026-04-12', sessions: 5, failures: [], best_sentences: [], created_at: '2026-03-20T09:00:00.000Z' },
+          ephemeral: { word: 'ephemeral', box: 3, status: 'reviewing', score: 75, last_practiced: '2026-03-28', next_review: '2026-04-05', sessions: 3, failures: [], best_sentences: [], created_at: '2026-03-25T14:30:00.000Z' },
+          liminal:   { word: 'liminal',   box: 1, status: 'learning',  score: 55, last_practiced: '2026-03-27', next_review: TODAY,        sessions: 1, failures: [], best_sentences: [], created_at: '2026-03-27T10:00:00.000Z' },
+          nascent:   { word: 'nascent',   box: 2, status: 'learning',  score: 0,  last_practiced: '',           next_review: TODAY,        sessions: 0, failures: [], best_sentences: [], created_at: `${TODAY}T08:00:00.000Z` },
         },
       };
       await writeFile(join(vaultPath, '.wordshunter', 'mastery.json'), JSON.stringify(store), 'utf8');

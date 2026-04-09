@@ -44,7 +44,7 @@ export async function vaultSummary(
     else learning++;
 
     if (isDue(e, today)) due_today++;
-    if (e.created_at === today) added_today++;
+    if (e.created_at?.startsWith(today)) added_today++;
 
     if (e.last_practiced) {
       if (!lastSession || e.last_practiced > lastSession) {

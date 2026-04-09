@@ -128,7 +128,7 @@ export async function createWord(
         sessions: 0,
         failures: [],
         best_sentences: [],
-        created_at: today,
+        created_at: new Date().toISOString(),
       };
       await writeMasteryStore(jsonPath, store);
     }
