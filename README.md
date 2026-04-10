@@ -120,6 +120,7 @@ A 9pm notification reminds you daily; a Sunday 9am notification sends a weekly r
 | `daily vocab review`     | Start a daily review (usage evaluation + new arrivals + practice) |
 | `review my words`        | Same as daily vocab review                                     |
 | `show my words`          | Vault summary: total, mastered, reviewing, learning, due today |
+| `quick drill`            | Quick practice — 3 due words, 1 sentence each, score capped at 80 |
 
 All trigger phrases must contain a vocab domain keyword (`word(s)`, `vocab`, `vocabulary`, `word vault`, `hunt`). Generic phrases like "daily review" or "what's due?" are not treated as vocab triggers.
 
