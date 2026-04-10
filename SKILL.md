@@ -1,6 +1,6 @@
 ---
 name: words-hunter
-description: "Vocabulary mastery through conversation. Triggers on: 'let's review words', 'vocab time', 'daily vocab review', 'show my words', 'add word X'. Uses spaced repetition (Leitner boxes) with a 40-point scoring rubric. NOT for: general word definitions outside the vault, grammar-only questions, or unrelated 'review' requests."
+description: "Vocabulary mastery through conversation. Triggers on: 'let's review words', 'vocab time', 'daily vocab review', 'show my words', 'quick drill', 'add word X'. Uses spaced repetition (Leitner boxes) with a 40-point scoring rubric. NOT for: general word definitions outside the vault, grammar-only questions, or unrelated 'review' requests."
 metadata:
   openclaw:
     emoji: "📚"
@@ -54,6 +54,13 @@ If the message could be about something else (calendar, tasks, code review), do
 - "what do I have in my word vault?"
 - "vocab status"
 - "how many words do I have"
+
+**Start a quick drill** (call `scan_vault(filter="due")`):
+- "quick drill"
+- "quick vocab drill"
+- "drill my words"
+- "quick words"
+- "drill 5 words"   (number sets word count, default 3)
 
 ---
 
@@ -149,6 +156,76 @@ After all due words:
 > Mastered today: {graduation_words or 'none'}.
 > Next session: {earliest next_review date}.
 > Say 'let's review words' to practice early, or 'show my words' for stats."
+
+---
+
+## Quick Drill flow
+
+A fast-paced mode for when time is short. One sentence per word, minimal feedback,
+score capped at 80 (words can hold or drop but never advance — full sessions required
+for box advancement).
+
+### 1. Scan
+
+Call `scan_vault(filter="due")`. If no due words, same message as the full session.
+
+If due words found, select up to N words (default 3, or user-specified count) using
+this priority:
+- **Tier 1**: status = "mastered" (box 4–5) — most invested effort at risk
+- **Tier 2**: status = "reviewing" (box 3)
+- **Tier 3**: status = "learning" (box 1–2)
+- **Within each tier**: earliest `next_review` first (most overdue)
+
+If fewer than N words are due, drill only the available words.
+
+Intro message:
+> "Quick drill — {N} words, one sentence each. Let's go."
+
+### 2. Per-word loop
+
+For each selected word:
+
+1. Call `load_word(word)`. Show a one-line definition from the page content.
+   > "**{word}** — {brief definition}"
+   > "Use it in a sentence."
+
+2. User writes one sentence.
+
+3. Score using the standard 40-point rubric (Meaning 15, Register 10, Collocation 10,
+   Grammar 5), scaled to 0–100. Then apply the drill cap:
+   `recorded_score = min(rubric_score, 80)`
+
+4. Call `record_mastery(word, recorded_score, best_sentence?, failure_note?)`.
+   - If rubric_score ≥ 85 (recorded as 80): include `best_sentence`
+   - If recorded_score < 60: include `failure_note`
+
+5. One-line feedback, then immediately move to the next word:
+   - Rubric ≥ 85 (recorded as 80): "Good — capped at 80 in drill mode. Box holds."
+   - Rubric 60–84 (recorded as-is): "{brief note}. Score: {score}."
+   - Rubric < 60 (recorded as-is): "{issue}. Score: {score}. Box {old}→{new}."
+
+No follow-up exchanges. No "try another context." One sentence, score, move on.
+
+### 3. Wrap-up
+
+> "Quick drill done — {N} words."
+> "{held} held, {dropped} dropped."
+> "Full practice: 'let's review words'"
+
+Do not show a detailed session summary. Keep it to 2–3 lines.
+
+### Quick Drill rules
+
+- **Score cap**: max recorded score is 80. The 85 threshold is never met, so boxes
+  never advance. This is intentional — advancement requires a full session.
+- **No graduation**: graduation (box 4 first time) cannot happen because advancement
+  cannot happen.
+- **No placeholder filling**: skip the unfilled placeholder check. If a word page has
+  empty placeholders, use your own knowledge for the one-line definition. Do not call
+  `update_page` during quick drill.
+- **No coaching variations**: do not ask for formal/informal contexts or synonyms.
+  One sentence, one score.
+- **Session timeout**: same as full session (60 minutes).
 
 ---
 
@@ -269,6 +346,7 @@ your outgoing messages, not on messages you receive.
 
 | Phrase | What happens |
 |--------|-------------|
+| "quick drill" | Start a quick drill for up to 3 due words (1 sentence each, score capped at 80) |
 | "let's review words" | Start mastery session for due words |
 | "show my words" | Vault summary (total, mastered, reviewing, learning, due) |
 | "add word posit" | Capture a word (handled by message hook, no agent needed) |
